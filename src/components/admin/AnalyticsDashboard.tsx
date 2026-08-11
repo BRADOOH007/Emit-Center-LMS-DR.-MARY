@@ -1,0 +1,190 @@
+'use client';
+
+import { useMemo } from 'react';
+import {
+  AlertTriangle,
+  BookOpen,
+  GraduationCap,
+  TrendingDown,
+  TrendingUp,
+  Users,
+  UserCheck,
+  BarChart3,
+} from 'lucide-react';
+import { MOCK_ANALYTICS } from '@/lib/mock-data';
+import { Badge } from '@/components/ui/Badge';
+import { cn } from '@/lib/utils';
+
+export function AnalyticsDashboard() {
+  const metrics = MOCK_ANALYTICS;
+
+  const maxEnrollment = useMemo(
+    () => Math.max(...metrics.enrollmentTrend.map((d) => d.count)),
+    [metrics],
+  );
+  const maxTrend = useMemo(
+    () => Math.max(...metrics.attendanceTrend.map((d) => Math.max(d.onsitePct, d.onlinePct))),
+    [metrics],
+  );
+  const maxGrade = useMemo(
+    () => Math.max(...metrics.gradeDistribution.map((d) => d.count)),
+    [metrics],
+  );
+
+  return (
+    <div className="space-y-8">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="panel flex items-center gap-4">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-500/10">
+            <Users aria-hidden="true" className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+          </div>
+          <div>
+            <p className="text-xs text-text-muted uppercase tracking-wide">Active Enrollments</p>
+            <p className="font-display text-2xl font-bold text-text-primary">{metrics.activeEnrollments}</p>
+          </div>
+        </div>
+        <div className="panel flex items-center gap-4">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10">
+            <GraduationCap aria-hidden="true" className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
+          </div>
+          <div>
+            <p className="text-xs text-text-muted uppercase tracking-wide">Total Students</p>
+            <p className="font-display text-2xl font-bold text-text-primary">{metrics.totalStudents}</p>
+          </div>
+        </div>
+        <div className="panel flex items-center gap-4">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gold-500/10">
+            <UserCheck aria-hidden="true" className="h-6 w-6 text-gold-600 dark:text-gold-400" />
+          </div>
+          <div>
+            <p className="text-xs text-text-muted uppercase tracking-wide">Attendance Rate</p>
+            <p className="font-display text-2xl font-bold text-text-primary">{metrics.overallAttendanceRate}%</p>
+            <p className="text-[11px] text-text-muted">
+              <span className="text-green-600">Onsite {metrics.onsiteAttendanceRate}%</span> &middot;{' '}
+              <span className="text-blue-600">Online {metrics.onlineAttendanceRate}%</span>
+            </p>
+          </div>
+        </div>
+        <div className="panel flex items-center gap-4">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-500/10">
+            <AlertTriangle aria-hidden="true" className="h-6 w-6 text-red-600 dark:text-red-400" />
+          </div>
+          <div>
+            <p className="text-xs text-text-muted uppercase tracking-wide">
+              <span className="flex items-center gap-1">Completion Rate <TrendingDown aria-hidden="true" className="h-3 w-3 text-red-500" /></span>
+            </p>
+            <p className="font-display text-2xl font-bold text-text-primary">{metrics.courseCompletionRate}%</p>
+            <p className="text-[11px] text-red-600 dark:text-red-400">{metrics.atRiskCount} students at risk</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="panel">
+          <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold text-text-primary">
+            <TrendingUp aria-hidden="true" className="h-4 w-4 text-gold-600" />
+            Enrollment Trend
+          </h3>
+          <div className="flex items-end gap-1" style={{ height: '8rem' }}>
+            {metrics.enrollmentTrend.map((point) => (
+              <div key={point.date} className="group flex flex-1 flex-col items-center justify-end">
+                <div
+                  className="w-full rounded-t bg-gold-500 transition-all hover:bg-gold-400"
+                  style={{ height: `${(point.count / maxEnrollment) * 90}%` }}
+                />
+                <span className="mt-1 text-[10px] text-text-muted group-hover:text-text-primary">
+                  {point.date.slice(5)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="panel">
+          <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold text-text-primary">
+            <UserCheck aria-hidden="true" className="h-4 w-4 text-gold-600" />
+            Attendance Rates
+          </h3>
+          <div className="space-y-2">
+            {metrics.attendanceTrend.map((point) => (
+              <div key={point.date} className="flex items-center gap-3">
+                <span className="w-12 text-xs text-text-muted">{point.date.slice(8)}</span>
+                <div className="flex flex-1 gap-1.5">
+                  <div className="flex items-center gap-1 text-xs">
+                    <span className="w-10 text-right text-emerald-600">{point.onsitePct}%</span>
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-line-soft">
+                      <div className="h-full rounded-full bg-emerald-500" style={{ width: `${(point.onsitePct / maxTrend) * 100}%` }} />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 text-xs">
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-line-soft">
+                      <div className="h-full rounded-full bg-blue-500" style={{ width: `${(point.onlinePct / maxTrend) * 100}%` }} />
+                    </div>
+                    <span className="w-10 text-blue-600">{point.onlinePct}%</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 flex items-center gap-4 text-[10px] text-text-muted">
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Onsite</span>
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" /> Online</span>
+          </div>
+        </div>
+
+        <div className="panel">
+          <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold text-text-primary">
+            <BarChart3 aria-hidden="true" className="h-4 w-4 text-gold-600" />
+            Grade Distribution
+          </h3>
+          <div className="flex items-end gap-1" style={{ height: '7rem' }}>
+            {metrics.gradeDistribution.map((d) => (
+              <div key={d.grade} className="group flex flex-1 flex-col items-center justify-end">
+                <div
+                  className={cn(
+                    'w-full rounded-t transition-all',
+                    d.grade.startsWith('A') ? 'bg-emerald-500' :
+                    d.grade.startsWith('B') ? 'bg-blue-500' :
+                    d.grade.startsWith('C') ? 'bg-amber-500' :
+                    d.grade === 'D' ? 'bg-orange-500' : 'bg-red-500',
+                  )}
+                  style={{ height: `${(d.count / maxGrade) * 80}%` }}
+                />
+                <span className="mt-1 text-[10px] text-text-muted group-hover:text-text-primary">{d.grade}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="panel">
+          <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold text-text-primary">
+            <AlertTriangle aria-hidden="true" className="h-4 w-4 text-red-500" />
+            At-Risk Students
+          </h3>
+          <div className="space-y-2">
+            {metrics.atRiskStudents.map((student) => (
+              <div key={student.userId} className="flex items-center justify-between rounded-lg border border-line px-3 py-2">
+                <div>
+                  <p className="text-sm font-medium text-text-primary">{student.name}</p>
+                  <p className="text-xs text-text-muted">{student.courseName}</p>
+                </div>
+                <div className="flex items-center gap-3 text-xs">
+                  <Badge
+                    variant={
+                      student.riskLevel === 'high' ? 'danger' :
+                      student.riskLevel === 'medium' ? 'gold' : 'neutral'
+                    }
+                  >
+                    {student.riskLevel}
+                  </Badge>
+                  <span className="text-text-muted">{student.gradePct}%</span>
+                  <span className="text-text-muted">{student.attendancePct}% att.</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
