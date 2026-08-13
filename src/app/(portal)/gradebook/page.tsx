@@ -1,10 +1,7 @@
 import { GradebookTable } from '@/components/gradebook/GradebookTable';
-import { getSession } from '@/lib/auth';
-import { MOCK_COURSES } from '@/lib/mock-data';
 
-export default async function GradebookPage() {
-  const session = await getSession();
-  const defaultCourseId = MOCK_COURSES[0]?.id ?? '';
+export default function GradebookPage() {
+  const defaultCourseId = '';
 
   return (
     <div className="space-y-6">

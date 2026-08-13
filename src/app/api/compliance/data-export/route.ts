@@ -1,44 +1,49 @@
 import { NextRequest } from 'next/server';
-import { MOCK_DATA_EXPORT_REQUESTS, MOCK_AUDIT_LOGS } from '@/lib/mock-data';
-import { ok, notFound, badRequest, parseBody } from '@/lib/api-helpers';
-import { generateId } from '@/lib/validation';
+import { prisma } from '@/lib/prisma';
+import { ok, badRequest, forbid, parseBody } from '@/lib/api-helpers';
+import { getSessionUser } from '@/lib/auth';
+import { isRateLimited, writeAuditLog } from '@/lib/security';
 
-export async function GET(_req: NextRequest, { params }: { params: { requestId: string } }) {
-  const exp = MOCK_DATA_EXPORT_REQUESTS.find((r) => r.id === params.requestId);
-  if (!exp) return notFound('Export request not found');
-  return ok(exp);
+export async function GET(_req: NextRequest) {
+  const me = await getSessionUser();
+  if (!me) return forbid('Sign in required');
+
+  const exports = await prisma.dataExportRequest.findMany({
+    where: { userId: me.id },
+    orderBy: { requestedAt: 'desc' },
+  });
+
+  return ok(exports);
 }
 
 export async function POST(request: NextRequest) {
-  try {
-    const body = await parseBody<{ userId: string; format: string }>(request);
-    if (!body.userId || !body.format) return badRequest('userId and format are required');
-    if (body.format !== 'json' && body.format !== 'csv') return badRequest('Format must be json or csv');
+  if (isRateLimited(request)) return badRequest('Too many requests. Please try again later.');
 
-    const now = new Date().toISOString();
-    const exp = {
-      id: generateId('exp'),
-      userId: body.userId,
-      format: body.format as 'json' | 'csv',
-      status: 'completed' as const,
+  const me = await getSessionUser();
+  if (!me) return forbid('Sign in required');
+
+  const body = await parseBody<{ format?: string }>(request).catch(() => null);
+  const format = body?.format === 'csv' ? 'csv' : 'json';
+
+  const now = new Date();
+  const exp = await prisma.dataExportRequest.create({
+    data: {
+      userId: me.id,
+      format,
+      status: 'completed',
       requestedAt: now,
-      completedAt: new Date(Date.now() + 3000).toISOString(),
-      downloadUrl: `https://data.emitcenter.com/exports/${generateId('')}.${body.format}`,
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-    };
+      completedAt: new Date(now.getTime() + 3000),
+      downloadUrl: `/api/compliance/data-export/download?id=placeholder_${me.id.slice(0, 6)}`,
+      expiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000),
+    },
+  });
 
-    MOCK_DATA_EXPORT_REQUESTS.push(exp);
-    MOCK_AUDIT_LOGS.push({
-      id: generateId('aud'),
-      userId: body.userId,
-      action: 'data.export_requested',
-      resourceType: 'data',
-      resourceId: exp.id,
-      createdAt: now,
-    });
+  await writeAuditLog({
+    userId: me.id,
+    action: 'data.export_requested',
+    resourceType: 'data',
+    resourceId: exp.id,
+  });
 
-    return ok(exp);
-  } catch {
-    return badRequest('Invalid request body');
-  }
+  return ok(exp);
 }

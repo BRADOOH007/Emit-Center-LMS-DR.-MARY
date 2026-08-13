@@ -1,34 +1,75 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CalendarDays, MapPin, Monitor, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { PageIntro, DataColumn, DataTable, ProgressBarCell, SectionPanel, StatCard } from '@/components/dashboard/primitives';
-import { MOCK_ROOMS, MOCK_SESSIONS, MOCK_USERS } from '@/lib/mock-data';
 import { StatusBadge } from '@/components/dashboard/status';
 import { useLocale } from '@/components/providers/AppProviders';
-import type { ClassSession } from '@/types';
+
+interface SessionRow {
+  id: string;
+  courseId: string;
+  title: string;
+  format: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  status: string;
+  sessionType: string;
+  roomId?: string | null;
+  meetingPlatform?: string | null;
+  instructor?: { id: string; fullName: string; email: string } | null;
+  room?: { id: string; name: string } | null;
+}
+
+interface RoomRow {
+  id: string;
+  name: string;
+}
 
 export function AdminClasses() {
   const { formatDate } = useLocale();
   const [search, setSearch] = useState('');
   const [formatFilter, setFormatFilter] = useState<'all' | 'onsite' | 'online' | 'hybrid'>('all');
+  const [sessions, setSessions] = useState<SessionRow[]>([]);
+  const [rooms, setRooms] = useState<RoomRow[]>([]);
 
-  const enriched = useMemo(() => MOCK_SESSIONS.map((s) => ({
-    ...s,
-    instructor: MOCK_USERS.find((u) => u.id === s.instructorId),
-    room: s.roomId ? MOCK_ROOMS.find((r) => r.id === s.roomId) : undefined,
-  })), []);
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      fetch('/api/sessions').then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] }))),
+      fetch('/api/resources').then((res) => (res.ok ? res.json() : Promise.resolve({ data: { rooms: [] } }))),
+    ])
+      .then(([sessionsJson, resourcesJson]) => {
+        if (!active) return;
+        setSessions(Array.isArray(sessionsJson.data) ? (sessionsJson.data as SessionRow[]) : []);
+        setRooms(Array.isArray(resourcesJson.data?.rooms) ? (resourcesJson.data.rooms as RoomRow[]) : []);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const enriched = useMemo(
+    () =>
+      sessions.map((s) => ({
+        ...s,
+        room: s.roomId ? rooms.find((r) => r.id === s.roomId) : null,
+      })),
+    [sessions, rooms],
+  );
 
   const filtered = enriched.filter((s) => {
     const matchesFormat = formatFilter === 'all' || s.format === formatFilter;
     const q = search.toLowerCase();
     const matchesSearch =
-      !q || s.title.toLowerCase().includes(q) || s.instructor?.name.toLowerCase().includes(q) || s.room?.name.toLowerCase().includes(q);
+      !q || s.title.toLowerCase().includes(q) || s.instructor?.fullName.toLowerCase().includes(q) || s.room?.name.toLowerCase().includes(q);
     return matchesFormat && matchesSearch;
   });
 
-  const columns: DataColumn<ClassSession & { room?: (typeof MOCK_ROOMS)[number] }>[] = [
+  const columns: DataColumn<SessionRow>[] = [
     {
       key: 'session',
       header: 'Session',
@@ -69,7 +110,7 @@ export function AdminClasses() {
     {
       key: 'instructor',
       header: 'Instructor',
-      render: (session) => <span className="text-sm text-text-primary">{session.instructor?.name ?? '—'}</span>,
+      render: (session) => <span className="text-sm text-text-primary">{session.instructor?.fullName ?? '—'}</span>,
     },
     {
       key: 'status',
@@ -85,11 +126,11 @@ export function AdminClasses() {
       <PageIntro
         kicker="Admin · Classes"
         title="Class Sessions"
-        subtitle={`${MOCK_SESSIONS.length} sessions across all courses · ${scheduled} currently scheduled`}
+        subtitle={`${enriched.length} sessions across all courses · ${scheduled} currently scheduled`}
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Total Sessions" value={MOCK_SESSIONS.length} hint="All courses" icon={CalendarDays} tone="gold" />
+        <StatCard label="Total Sessions" value={enriched.length} hint="All courses" icon={CalendarDays} tone="gold" />
         <StatCard label="Scheduled" value={scheduled} hint="Upcoming sessions" icon={CalendarDays} tone="blue" />
         <StatCard label="Onsite" value={enriched.filter((s) => s.format === 'onsite').length} hint="In-person sessions" icon={CalendarDays} tone="brown" />
         <StatCard label="Live / Online" value={enriched.filter((s) => s.format !== 'onsite').length} hint="Remote sessions" icon={CalendarDays} tone="emerald" />

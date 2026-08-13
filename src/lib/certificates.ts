@@ -1,6 +1,4 @@
-import { MOCK_CERTIFICATES, MOCK_COURSES, MOCK_USERS } from '@/lib/mock-data';
-import { getEnrollments } from '@/lib/dashboard-data';
-import { generateId } from '@/lib/validation';
+import { prisma } from '@/lib/prisma';
 import type { Certificate } from '@/types';
 
 const HEX = '0123456789abcdef';
@@ -34,59 +32,75 @@ export interface IssueCertificateInput {
   userId: string;
   courseId: string;
   completionDate?: string;
-  issuedAt?: string;
 }
 
-export function issueCertificate({
+export async function issueCertificate({
   userId,
   courseId,
   completionDate = new Date().toISOString(),
-  issuedAt = new Date().toISOString(),
-}: IssueCertificateInput): Certificate {
-  const existing = MOCK_CERTIFICATES.find((c) => c.userId === userId && c.courseId === courseId);
-  if (existing) return existing;
+}: IssueCertificateInput): Promise<Certificate> {
+  const existing = await prisma.certificate.findUnique({
+    where: { userId_courseId: { userId, courseId } },
+  });
+  if (existing) return mapCertificate(existing);
 
-  const user = MOCK_USERS.find((u) => u.id === userId);
-  const course = MOCK_COURSES.find((c) => c.id === courseId);
+  const [user, course] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId } }),
+    prisma.course.findUnique({ where: { id: courseId } }),
+  ]);
 
-  const certificate: Certificate = {
-    id: generateId('cert'),
-    userId,
-    courseId,
-    studentName: user?.fullName ?? user?.name ?? 'Student',
-    courseTitle: course?.title ?? 'Course',
-    completionDate,
-    verificationHash: verificationHashFor(userId, courseId),
-    issuedAt,
+  const certificate = await prisma.certificate.create({
+    data: {
+      userId,
+      courseId,
+      studentName: user?.fullName ?? 'Student',
+      courseTitle: course?.title ?? 'Course',
+      completionDate: new Date(completionDate),
+      verificationHash: verificationHashFor(userId, courseId),
+    },
+  });
+
+  return mapCertificate(certificate);
+}
+
+export async function getStudentCertificates(userId: string): Promise<Certificate[]> {
+  const certs = await prisma.certificate.findMany({
+    where: { userId },
+    orderBy: { issuedAt: 'desc' },
+  });
+  return certs.map(mapCertificate);
+}
+
+export async function getIssuedCertificates(): Promise<Certificate[]> {
+  const certs = await prisma.certificate.findMany({
+    orderBy: { issuedAt: 'desc' },
+  });
+  return certs.map(mapCertificate);
+}
+
+export async function verifyCertificate(hash: string): Promise<Certificate | null> {
+  const cert = await prisma.certificate.findUnique({ where: { verificationHash: hash } });
+  return cert ? mapCertificate(cert) : null;
+}
+
+function mapCertificate(row: {
+  id: string;
+  userId: string;
+  courseId: string;
+  studentName: string;
+  courseTitle: string;
+  completionDate: Date;
+  verificationHash: string;
+  issuedAt: Date;
+}): Certificate {
+  return {
+    id: row.id,
+    userId: row.userId,
+    courseId: row.courseId,
+    studentName: row.studentName,
+    courseTitle: row.courseTitle,
+    completionDate: row.completionDate.toISOString(),
+    verificationHash: row.verificationHash,
+    issuedAt: row.issuedAt.toISOString(),
   };
-
-  MOCK_CERTIFICATES.push(certificate);
-  return certificate;
-}
-
-export function getStudentCertificates(userId: string): Certificate[] {
-  ensureAutoCertificates();
-  return MOCK_CERTIFICATES.filter((c) => c.userId === userId);
-}
-
-export function getIssuedCertificates(): Certificate[] {
-  ensureAutoCertificates();
-  return MOCK_CERTIFICATES;
-}
-
-let seeded = false;
-
-function ensureAutoCertificates(): void {
-  if (seeded) return;
-  seeded = true;
-  getEnrollments()
-    .filter((enrollment) => enrollment.status === 'completed')
-    .forEach((enrollment) =>
-      issueCertificate({
-        userId: enrollment.userId,
-        courseId: enrollment.courseId,
-        completionDate: enrollment.updatedAt ?? enrollment.createdAt,
-        issuedAt: enrollment.updatedAt ?? enrollment.createdAt,
-      }),
-    );
 }

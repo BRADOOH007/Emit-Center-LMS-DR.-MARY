@@ -1,26 +1,68 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { CheckCircle2, Copy, ExternalLink, ShieldCheck } from 'lucide-react';
-import { MOCK_COURSES, MOCK_USERS } from '@/lib/mock-data';
-import { getIssuedCertificates } from '@/lib/certificates';
 import type { Certificate } from '@/types';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { CertificateArt } from '@/components/certificate/CertificateArt';
 import { cn } from '@/lib/utils';
 
+interface CourseOption {
+  id: string;
+  title: string;
+}
+
+interface StudentOption {
+  id: string;
+  fullName: string;
+  email: string;
+}
+
 export function CertificateGenerator() {
-  const [selectedCourse, setSelectedCourse] = useState(MOCK_COURSES[0]?.id ?? '');
-  const [selectedUser, setSelectedUser] = useState(MOCK_USERS.find((u) => u.roles.includes('student'))?.id ?? '');
+  const [courses, setCourses] = useState<CourseOption[]>([]);
+  const [students, setStudents] = useState<StudentOption[]>([]);
+  const [issued, setIssued] = useState<Certificate[]>([]);
+  const [selectedCourse, setSelectedCourse] = useState('');
+  const [selectedUser, setSelectedUser] = useState('');
   const [completionDate, setCompletionDate] = useState(new Date().toISOString().slice(0, 10));
   const [generated, setGenerated] = useState<Certificate | null>(null);
   const [generating, setGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const course = MOCK_COURSES.find((c) => c.id === selectedCourse);
-  const user = MOCK_USERS.find((u) => u.id === selectedUser);
-  const issued = getIssuedCertificates();
+  useEffect(() => {
+    let active = true;
+    fetch('/api/admin/courses')
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (!active) return;
+        const list = Array.isArray(json.data) ? json.data : [];
+        setCourses(list.map((c: CourseOption) => ({ id: c.id, title: c.title })));
+        setSelectedCourse(list[0]?.id ?? '');
+      })
+      .catch(() => undefined);
+    fetch('/api/users?role=student')
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (!active) return;
+        const list = Array.isArray(json.data) ? json.data : [];
+        setStudents(list.map((s: StudentOption) => ({ id: s.id, fullName: s.fullName, email: s.email })));
+        setSelectedUser(list.find((s: { roles?: string[] }) => s.roles?.includes('student'))?.id ?? list[0]?.id ?? '');
+      })
+      .catch(() => undefined);
+    fetch('/api/certificates')
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (active) setIssued(Array.isArray(json.data) ? json.data : []);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const course = courses.find((c) => c.id === selectedCourse);
+  const user = students.find((u) => u.id === selectedUser);
 
   const handleGenerate = useCallback(async () => {
     if (!course || !user) return;
@@ -38,7 +80,10 @@ export function CertificateGenerator() {
         }),
       });
       const json = await res.json();
-      if (json.success) setGenerated(json.data);
+      if (json.success) {
+        setGenerated(json.data);
+        setIssued((prev) => [json.data, ...prev.filter((c) => c.id !== json.data.id)]);
+      }
     } finally {
       setGenerating(false);
     }
@@ -50,8 +95,6 @@ export function CertificateGenerator() {
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }, [generated]);
-
-  const students = MOCK_USERS.filter((u) => u.roles.includes('student'));
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
@@ -140,7 +183,7 @@ export function CertificateGenerator() {
             onChange={(e) => setSelectedCourse(e.target.value)}
             className="input !py-2"
           >
-            {MOCK_COURSES.map((c) => (
+            {courses.map((c) => (
               <option key={c.id} value={c.id}>{c.title}</option>
             ))}
           </select>

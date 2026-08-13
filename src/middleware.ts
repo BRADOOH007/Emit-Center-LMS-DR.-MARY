@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { ROLE_META, ROLES } from '@/config/roles';
 import type { Role } from '@/types';
+import { applySecurityHeaders, securityHeaders } from '@/lib/security';
 
 const ROLE_ROUTE_PREFIXES: Record<Role, string[]> = {
   super_admin: ['/dashboard/admin', '/admin'],
@@ -21,9 +22,23 @@ function readRole(request: NextRequest): Role {
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  const headers = securityHeaders();
+  const hasValidSession = Boolean(request.cookies.get('emit_session')?.value);
+
   if (pathname === '/dashboard' || pathname === '/dashboard/') {
+    if (!hasValidSession) {
+      const login = new URL('/login', request.url);
+      login.searchParams.set('next', pathname);
+      return applySecurityHeaders(NextResponse.redirect(login));
+    }
     const role = readRole(request);
-    return NextResponse.redirect(new URL(ROLE_META[role].home, request.url));
+    return applySecurityHeaders(NextResponse.redirect(new URL(ROLE_META[role].home, request.url)));
+  }
+
+  if (!hasValidSession) {
+    const login = new URL('/login', request.url);
+    login.searchParams.set('next', pathname);
+    return applySecurityHeaders(NextResponse.redirect(login));
   }
 
   const role = readRole(request);
@@ -31,14 +46,14 @@ export function middleware(request: NextRequest) {
   const isAllowed = allowed.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 
   if (!isAllowed) {
-    return NextResponse.redirect(new URL(ROLE_META[role].home, request.url));
+    return applySecurityHeaders(NextResponse.redirect(new URL(ROLE_META[role].home, request.url)));
   }
 
   if (role !== 'super_admin' && SUPER_ADMIN_ONLY_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) {
-    return NextResponse.redirect(new URL(ROLE_META[role].home, request.url));
+    return applySecurityHeaders(NextResponse.redirect(new URL(ROLE_META[role].home, request.url)));
   }
 
-  return NextResponse.next();
+  return applySecurityHeaders(NextResponse.next());
 }
 
 export const config = {

@@ -1,30 +1,55 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CircleDollarSign, Receipt, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { PageIntro, DataColumn, DataTable, SectionPanel, StatCard } from '@/components/dashboard/primitives';
-import { getStudentPayments } from '@/lib/dashboard-data';
 import { useLocale } from '@/components/providers/AppProviders';
-import type { Payment } from '@/types/dashboard';
+
+interface PaymentRow {
+  id: string;
+  userId: string;
+  courseId: string;
+  enrollmentId: string;
+  amount: number;
+  currency: string;
+  status: string;
+  createdAt: string;
+}
 
 export function StudentPayments({ studentId }: { studentId: string }) {
   const { formatCurrency, formatDate } = useLocale();
   const [search, setSearch] = useState('');
-  const payments = useMemo(() => getStudentPayments(studentId), [studentId]);
+  const [payments, setPayments] = useState<PaymentRow[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/payments?userId=${encodeURIComponent(studentId)}`)
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (active) setPayments(Array.isArray(json.data) ? json.data : []);
+      })
+      .catch(() => {
+        if (active) setPayments([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [studentId]);
+
   const succeeded = payments.filter((p) => p.status === 'succeeded');
   const totalPaid = succeeded.reduce((sum, p) => sum + p.amount, 0);
   const pending = payments.filter((p) => p.status === 'processing').reduce((sum, p) => sum + p.amount, 0);
 
-  const filtered = payments.filter((p) => p.stripePaymentIntentId.toLowerCase().includes(search.toLowerCase()));
+  const filtered = payments.filter((p) => p.id.toLowerCase().includes(search.toLowerCase()));
 
-  const downloadReceipt = (payment: Payment) => {
+  const downloadReceipt = (payment: PaymentRow) => {
     const lines = [
       'EMIT Center LMS — Payment Receipt',
       '----------------------------------',
-      `Payment ID:     ${payment.stripePaymentIntentId}`,
+      `Payment ID:     ${payment.id}`,
       `Date:           ${new Date(payment.createdAt).toLocaleString()}`,
-      `Amount:         ${formatCurrency(payment.amount)} ${payment.currency}`,
+      `Amount:         ${formatCurrency(payment.amount / 100)} ${payment.currency}`,
       `Status:         ${payment.status}`,
       `Gateway:        Stripe`,
     ];
@@ -32,18 +57,18 @@ export function StudentPayments({ studentId }: { studentId: string }) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${payment.stripePaymentIntentId}-receipt.txt`;
+    a.download = `${payment.id}-receipt.txt`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
-  const columns: DataColumn<Payment>[] = [
+  const columns: DataColumn<PaymentRow>[] = [
     {
       key: 'payment',
       header: 'Payment',
       render: (payment) => (
         <div className="min-w-0">
-          <p className="truncate font-medium text-text-primary">{payment.stripePaymentIntentId}</p>
+          <p className="truncate font-medium text-text-primary">{payment.id}</p>
           <p className="text-xs text-text-muted">{formatDate(payment.createdAt)}</p>
         </div>
       ),
@@ -51,7 +76,7 @@ export function StudentPayments({ studentId }: { studentId: string }) {
     {
       key: 'amount',
       header: 'Amount',
-      render: (payment) => <span className="font-semibold tabular-nums text-text-primary">{formatCurrency(payment.amount)} {payment.currency}</span>,
+      render: (payment) => <span className="font-semibold tabular-nums text-text-primary">{formatCurrency(payment.amount / 100)} {payment.currency}</span>,
     },
     {
       key: 'status',
@@ -78,14 +103,14 @@ export function StudentPayments({ studentId }: { studentId: string }) {
       <PageIntro
         kicker="Student · Payments"
         title="My Payments"
-        subtitle={`${payments.length} transactions · ${formatCurrency(totalPaid)} paid`}
+        subtitle={`${payments.length} transactions · ${formatCurrency(totalPaid / 100)} paid`}
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Total Paid" value={formatCurrency(totalPaid)} hint="Successful payments" icon={CircleDollarSign} tone="emerald" />
-        <StatCard label="Pending" value={formatCurrency(pending)} hint="In processing" icon={CircleDollarSign} tone="gold" />
+        <StatCard label="Total Paid" value={formatCurrency(totalPaid / 100)} hint="Successful payments" icon={CircleDollarSign} tone="emerald" />
+        <StatCard label="Pending" value={formatCurrency(pending / 100)} hint="In processing" icon={CircleDollarSign} tone="gold" />
         <StatCard label="Transactions" value={payments.length} hint="All time" icon={CircleDollarSign} tone="blue" />
-        <StatCard label="Refunded" value={formatCurrency(payments.filter((p) => p.status === 'refunded').reduce((s, p) => s + p.amount, 0))} hint="Credited back" icon={CircleDollarSign} tone="red" />
+        <StatCard label="Refunded" value={formatCurrency(payments.filter((p) => p.status === 'refunded').reduce((s, p) => s + p.amount, 0) / 100)} hint="Credited back" icon={CircleDollarSign} tone="red" />
       </div>
 
       <div className="relative max-w-sm">

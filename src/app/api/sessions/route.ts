@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { MOCK_SESSIONS, MOCK_ROOMS, MOCK_USERS, MOCK_COURSES } from '@/lib/mock-data';
+import { prisma } from '@/lib/prisma';
 import { ok } from '@/lib/api-helpers';
 
 export async function GET(request: NextRequest) {
@@ -8,20 +8,46 @@ export async function GET(request: NextRequest) {
   const format = searchParams.get('format');
   const date = searchParams.get('date');
   const status = searchParams.get('status');
+  const instructorId = searchParams.get('instructorId');
 
-  let sessions = MOCK_SESSIONS.map((session) => ({
-    ...session,
-    course: MOCK_COURSES.find((c) => c.id === session.courseId),
-    instructor: MOCK_USERS.find((u) => u.id === session.instructorId),
-    room: session.roomId ? MOCK_ROOMS.find((r) => r.id === session.roomId) : undefined,
+  const where: Record<string, unknown> = {};
+  if (courseId) where.courseId = courseId;
+  if (format) where.format = format;
+  if (status) where.status = status;
+  if (instructorId) where.instructorId = instructorId;
+
+  let sessions = await prisma.courseSession.findMany({
+    where,
+    include: {
+      course: { select: { id: true, title: true, slug: true } },
+      instructor: { select: { id: true, fullName: true, email: true } },
+      attendance: true,
+    },
+    orderBy: { date: 'asc' },
+  });
+
+  if (date) {
+    sessions = sessions.filter((s) => s.date.toISOString().startsWith(date));
+  }
+
+  const data = sessions.map((s) => ({
+    id: s.id,
+    courseId: s.courseId,
+    title: s.title,
+    format: s.format,
+    date: s.date.toISOString().split('T')[0],
+    startTime: s.startTime,
+    endTime: s.endTime,
+    hostTimezone: s.hostTimezone,
+    instructorId: s.instructorId,
+    roomId: s.roomId,
+    meetingLink: s.meetingLink,
+    status: s.status,
+    sessionType: s.sessionType,
+    course: s.course,
+    instructor: s.instructor,
+    attendanceCount: s.attendance.length,
   }));
 
-  if (courseId) sessions = sessions.filter((s) => s.courseId === courseId);
-  if (format) sessions = sessions.filter((s) => s.format === format);
-  if (date) sessions = sessions.filter((s) => s.date.startsWith(date));
-  if (status) sessions = sessions.filter((s) => s.status === status);
-
-  sessions.sort((a, b) => new Date(a.date + 'T' + a.startTime).getTime() - new Date(b.date + 'T' + b.startTime).getTime());
-
-  return ok(sessions);
+  return ok(data);
 }

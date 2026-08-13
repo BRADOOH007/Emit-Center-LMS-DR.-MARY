@@ -1,34 +1,59 @@
 import { NextRequest } from 'next/server';
-import { MOCK_USERS } from '@/lib/mock-data';
+import { prisma } from '@/lib/prisma';
 import { ok, forbid, notFound, badRequest } from '@/lib/api-helpers';
-import { canInstructorAccessStudent, filterGradebookByEnrollment } from '@/lib/ferpa';
-import { MOCK_GRADEBOOK } from '@/lib/mock-data';
+import { getSessionUser } from '@/lib/auth';
+import { isAdminRole } from '@/lib/security';
 
 export async function GET(request: NextRequest, { params }: { params: { courseId: string } }) {
+  const me = await getSessionUser();
+  if (!me) return forbid('Sign in required');
+
+  const isAdmin = isAdminRole(me.roles);
+  const isInstructor = await prisma.course
+    .findFirst({ where: { id: params.courseId, instructorId: me.id } })
+    .then(Boolean);
+
+  if (!isAdmin && !isInstructor) {
+    return forbid('Only the course instructor or an administrator may access student records.');
+  }
+
   const { searchParams } = request.nextUrl;
-  const instructorId = searchParams.get('instructorId') ?? 'usr_0002';
   const targetStudentId = searchParams.get('studentId');
 
-  const instructor = MOCK_USERS.find((u) => u.id === instructorId);
-  if (!instructor) return notFound('Instructor not found');
-
   if (targetStudentId) {
-    const check = canInstructorAccessStudent(instructor, targetStudentId, params.courseId, 'gradebook');
-    if (!check.allowed) return forbid(check.reason ?? 'Access denied by FERPA policy.');
+    const enrolled = await prisma.enrollment.findUnique({
+      where: { userId_courseId: { userId: targetStudentId, courseId: params.courseId } },
+    });
+    if (!enrolled || enrolled.status !== 'active') {
+      return forbid('Student is not enrolled in this course.');
+    }
+    await prisma.ferpaAccessLog.create({
+      data: {
+        instructorId: me.id,
+        studentId: targetStudentId,
+        courseId: params.courseId,
+        resourceType: 'gradebook',
+        ipAddress: request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
+      },
+    });
     return ok({ allowed: true, studentId: targetStudentId, courseId: params.courseId });
   }
 
-  const entries = filterGradebookByEnrollment(instructorId, MOCK_GRADEBOOK);
-  const redacted = entries.map((e) => ({
-    ...e,
-    user: MOCK_USERS.find((u) => u.id === e.userId),
-  }));
+  const enrollments = await prisma.enrollment.findMany({
+    where: { courseId: params.courseId, status: 'active' },
+    select: { userId: true },
+  });
+
+  const entries = await prisma.gradebookEntry.findMany({
+    where: { courseId: params.courseId, userId: { in: enrollments.map((e) => e.userId) } },
+    include: { user: { select: { id: true, fullName: true, email: true } } },
+  });
 
   return ok({
     allowed: true,
-    instructorId,
+    instructorId: me.id,
     courseId: params.courseId,
-    entries: redacted.length,
-    data: redacted,
+    entries: entries.length,
+    data: entries,
   });
 }

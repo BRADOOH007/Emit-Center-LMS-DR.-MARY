@@ -1,15 +1,30 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { Award, ExternalLink } from 'lucide-react';
 import { PageIntro, SectionPanel, StatCard } from '@/components/dashboard/primitives';
-import { getStudentCertificates } from '@/lib/certificates';
+import type { Certificate } from '@/types';
 import { useLocale } from '@/components/providers/AppProviders';
 import { Badge } from '@/components/ui/Badge';
 
 export function StudentCertificates({ studentId }: { studentId: string }) {
   const { formatDate } = useLocale();
-  const certificates = useMemo(() => getStudentCertificates(studentId), [studentId]);
+  const [certificates, setCertificates] = useState<Certificate[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/certificates?userId=${encodeURIComponent(studentId)}`)
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (active) setCertificates(Array.isArray(json.data) ? json.data : []);
+      })
+      .catch(() => {
+        if (active) setCertificates([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [studentId]);
 
   return (
     <div className="space-y-6">

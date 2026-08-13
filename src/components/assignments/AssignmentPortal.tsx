@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
@@ -13,23 +13,41 @@ import {
   ArrowUpCircle,
   X,
 } from 'lucide-react';
-import { MOCK_ASSIGNMENTS, MOCK_SUBMISSIONS } from '@/lib/mock-data';
+import type { Assignment, Submission } from '@/types';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/utils';
 
+type PortalAssignment = Assignment & { submissions: Submission[] };
+
 export function AssignmentPortal({ courseId }: { courseId: string }) {
   const router = useRouter();
-  const assignments = MOCK_ASSIGNMENTS.filter((a) => a.courseId === courseId);
+  const [assignments, setAssignments] = useState<PortalAssignment[]>([]);
   const [activeTab, setActiveTab] = useState(0);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const [uploadDone, setUploadDone] = useState<Set<string>>(new Set());
   const [files, setFiles] = useState<Record<string, File | null>>({});
 
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/assignments/${encodeURIComponent(courseId)}`)
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: { assignments: [] } })))
+      .then((json) => {
+        if (!active) return;
+        const data = json.data;
+        const list = Array.isArray(data) ? data : Array.isArray(data?.assignments) ? data.assignments : [];
+        setAssignments(list as PortalAssignment[]);
+      })
+      .catch(() => {
+        if (active) setAssignments([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [courseId]);
+
   const activeAssignment = assignments[activeTab];
-  const submissions = activeAssignment
-    ? MOCK_SUBMISSIONS.filter((s) => s.assignmentId === activeAssignment.id)
-    : [];
+  const submissions = activeAssignment ? activeAssignment.submissions : [];
 
   const isPastDue = (dueDate: string) => new Date(dueDate) < new Date();
   const formatDueDate = (date: string) =>
@@ -39,10 +57,28 @@ export function AssignmentPortal({ courseId }: { courseId: string }) {
     const file = files[assignmentId];
     if (!file) return;
     setUploadingId(assignmentId);
-    await new Promise((r) => setTimeout(r, 1200));
-    setUploadDone((prev) => new Set(prev).add(assignmentId));
-    setUploadingId(null);
-  }, [files]);
+    try {
+      const res = await fetch(`/api/assignments/${encodeURIComponent(courseId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assignmentId, fileName: file.name, fileSize: file.size }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        const submission = json?.data as Submission | undefined;
+        if (submission) {
+          setAssignments((prev) =>
+            prev.map((a) => (a.id === assignmentId ? { ...a, submissions: [...a.submissions, submission] } : a)),
+          );
+        }
+        setUploadDone((prev) => new Set(prev).add(assignmentId));
+      }
+    } catch {
+      return;
+    } finally {
+      setUploadingId(null);
+    }
+  }, [files, courseId]);
 
   if (assignments.length === 0) {
     return (

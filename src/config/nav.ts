@@ -34,15 +34,6 @@ export interface NavSection {
   items: NavItem[];
 }
 
-export const MAIN_NAV: NavItem[] = [
-  { label: 'Programs', href: '/programs', icon: GraduationCap },
-  { label: 'Courses', href: '/courses', icon: BookOpen },
-  { label: 'Onsite Classes', href: '/classes/onsite', icon: CalendarDays },
-  { label: 'Online Classes', href: '/classes/online', icon: BookOpen },
-  { label: 'Student Dashboard', href: '/dashboard/student', icon: LayoutDashboard },
-  { label: 'Instructor Portal', href: '/dashboard/instructor', icon: Users },
-];
-
 export const SIDEBAR_NAV: Record<Role, NavSection[]> = {
   super_admin: [
     {

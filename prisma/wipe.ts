@@ -4,6 +4,10 @@ const prisma = new PrismaClient();
 
 async function main() {
   await prisma.$transaction([
+    prisma.session.deleteMany(),
+    prisma.verificationToken.deleteMany(),
+    prisma.passwordResetToken.deleteMany(),
+    prisma.appSetting.deleteMany(),
     prisma.chatMessage.deleteMany(),
     prisma.resourceBooking.deleteMany(),
     prisma.quizAttempt.deleteMany(),

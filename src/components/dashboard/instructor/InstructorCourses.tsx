@@ -1,20 +1,41 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { BookOpen, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { PageIntro, DataColumn, DataTable, ProgressBarCell, SectionPanel, StatCard } from '@/components/dashboard/primitives';
-import { getInstructorCourses, getRosterForCourse } from '@/lib/dashboard-data';
 import { useLocale } from '@/components/providers/AppProviders';
 import type { Course } from '@/types';
 
 export function InstructorCourses({ instructorId }: { instructorId: string }) {
   const { formatCurrency } = useLocale();
   const [search, setSearch] = useState('');
+  const [courses, setCourses] = useState<Course[]>([]);
 
-  const courses = useMemo(() => getInstructorCourses(instructorId), [instructorId]);
-  const filtered = courses.filter((c) => c.title.toLowerCase().includes(search.toLowerCase()));
-  const rosterCount = courses.reduce((sum, c) => sum + getRosterForCourse(c.id).length, 0);
+  useEffect(() => {
+    let active = true;
+    fetch('/api/admin/courses')
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (active) {
+          setCourses(
+            Array.isArray(json.data) ? json.data.filter((c: Course) => c.instructorId === instructorId) : [],
+          );
+        }
+      })
+      .catch(() => {
+        if (active) setCourses([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [instructorId]);
+
+  const filtered = useMemo(
+    () => courses.filter((c) => c.title.toLowerCase().includes(search.toLowerCase())),
+    [courses, search],
+  );
+  const rosterCount = courses.reduce((sum, c) => sum + c.enrolledCount, 0);
 
   const columns: DataColumn<Course>[] = [
     {

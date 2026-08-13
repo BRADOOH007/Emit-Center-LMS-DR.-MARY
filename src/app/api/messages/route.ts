@@ -1,27 +1,29 @@
 import { NextRequest } from 'next/server';
-import { MOCK_DIRECT_MESSAGES, MOCK_USERS } from '@/lib/mock-data';
-import { ok, badRequest, parseBody } from '@/lib/api-helpers';
-import { generateId } from '@/lib/validation';
+import { prisma } from '@/lib/prisma';
+import { ok, badRequest, forbid, parseBody } from '@/lib/api-helpers';
+import { getSessionUser } from '@/lib/auth';
+import { isRateLimited, writeAuditLog } from '@/lib/security';
+import { sanitizeInput } from '@/lib/validation';
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = request.nextUrl;
-  const userId = searchParams.get('userId') ?? 'usr_0001';
+  const me = await getSessionUser();
+  if (!me) return forbid('Sign in required');
 
-  const messages = MOCK_DIRECT_MESSAGES
-    .filter((m) => m.senderId === userId || m.receiverId === userId)
-    .map((m) => ({
-      ...m,
-      sender: MOCK_USERS.find((u) => u.id === m.senderId),
-      receiver: MOCK_USERS.find((u) => u.id === m.receiverId),
-    }))
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const messages = await prisma.directMessage.findMany({
+    where: { OR: [{ senderId: me.id }, { receiverId: me.id }] },
+    include: {
+      sender: { select: { id: true, fullName: true, email: true, avatarUrl: true } },
+      receiver: { select: { id: true, fullName: true, email: true, avatarUrl: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
 
-  const threads = new Map<string, { id: string; participant: typeof MOCK_USERS[0]; messages: typeof messages; unread: number }>();
+  const threads = new Map<string, { id: string; participant: { id: string; fullName: string; email: string; avatarUrl: string | null }; messages: unknown[]; unread: number }>();
 
   messages.forEach((msg) => {
-    const otherId = msg.senderId === userId ? msg.receiverId : msg.senderId;
+    const otherId = msg.senderId === me.id ? msg.receiverId : msg.senderId;
     if (!threads.has(otherId)) {
-      const participant = (MOCK_USERS.find((u) => u.id === otherId) ?? msg.sender ?? msg.receiver)!;
+      const participant = msg.senderId === me.id ? msg.receiver : msg.sender;
       threads.set(otherId, {
         id: `mt_${otherId}`,
         participant,
@@ -31,42 +33,62 @@ export async function GET(request: NextRequest) {
     }
     const thread = threads.get(otherId)!;
     thread.messages.push(msg);
-    if (!msg.isRead && msg.receiverId === userId) thread.unread++;
+    if (!msg.isRead && msg.receiverId === me.id) thread.unread++;
   });
 
-  const threadList = Array.from(threads.values())
-    .sort((a, b) => new Date(b.messages[0].createdAt).getTime() - new Date(a.messages[0].createdAt).getTime());
+  const threadList = Array.from(threads.values()).sort(
+    (a, b) => new Date((b.messages[0] as { createdAt: Date }).createdAt).getTime() - new Date((a.messages[0] as { createdAt: Date }).createdAt).getTime(),
+  );
 
   return ok(threadList);
 }
 
 export async function POST(request: NextRequest) {
-  try {
-    const body = await parseBody<{
-      senderId: string;
-      receiverId: string;
-      subject: string;
-      content: string;
-      parentStudentId?: string;
-    }>(request);
-    if (!body.senderId || !body.receiverId || !body.subject || !body.content) {
-      return badRequest('senderId, receiverId, subject, and content are required');
-    }
+  if (isRateLimited(request)) return badRequest('Too many requests. Please try again later.');
 
-    const message = {
-      id: generateId('msg'),
-      senderId: body.senderId,
-      receiverId: body.receiverId,
-      subject: body.subject,
-      content: body.content,
-      parentStudentId: body.parentStudentId,
-      isRead: false,
-      createdAt: new Date().toISOString(),
-    };
+  const me = await getSessionUser();
+  if (!me) return forbid('Sign in required');
 
-    MOCK_DIRECT_MESSAGES.push(message);
-    return ok(message);
-  } catch {
-    return badRequest('Invalid request body');
+  const body = await parseBody<{
+    receiverId?: string;
+    subject?: string;
+    content?: string;
+    parentStudentId?: string;
+  }>(request).catch(() => null);
+
+  if (!body?.receiverId || !body?.subject || !body?.content) {
+    return badRequest('receiverId, subject, and content are required');
   }
+
+  const receiver = await prisma.user.findUnique({ where: { id: body.receiverId } });
+  if (!receiver) return badRequest('Recipient not found');
+
+  const message = await prisma.directMessage.create({
+    data: {
+      senderId: me.id,
+      receiverId: body.receiverId,
+      subject: sanitizeInput(body.subject).slice(0, 200),
+      content: sanitizeInput(body.content).slice(0, 5000),
+      parentStudentId: body.parentStudentId ?? null,
+    },
+  });
+
+  await prisma.notification.create({
+    data: {
+      userId: receiver.id,
+      type: 'message',
+      title: `New message from ${me.fullName}`,
+      body: sanitizeInput(body.subject).slice(0, 200),
+      actionUrl: '/messages',
+    },
+  });
+
+  await writeAuditLog({
+    userId: me.id,
+    action: 'message.sent',
+    resourceType: 'message',
+    resourceId: message.id,
+  });
+
+  return ok(message);
 }

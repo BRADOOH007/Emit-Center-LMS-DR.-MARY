@@ -2,8 +2,8 @@ import { CertificateArt } from '@/components/certificate/CertificateArt';
 import { getIssuedCertificates } from '@/lib/certificates';
 import { Badge } from '@/components/ui/Badge';
 
-export default function CertificateVerifyPage({ params }: { params: { hash: string } }) {
-  const cert = getIssuedCertificates().find((c) => c.verificationHash === params.hash);
+export default async function CertificateVerifyPage({ params }: { params: { hash: string } }) {
+  const cert = (await getIssuedCertificates()).find((c) => c.verificationHash === params.hash);
 
   if (!cert) {
     return (

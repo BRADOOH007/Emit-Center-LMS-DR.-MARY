@@ -1,30 +1,110 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, Award, BookOpen, CalendarDays, ClipboardList, TrendingUp } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { PageIntro, SectionPanel, StatCard } from '@/components/dashboard/primitives';
 import { StatusBadge } from '@/components/dashboard/status';
-import {
-  getGradebookForStudent,
-  getStudentCourseIds,
-  getStudentEnrollments,
-} from '@/lib/dashboard-data';
-import { getStudentCertificates } from '@/lib/certificates';
-import { MOCK_ASSIGNMENTS, MOCK_SESSIONS } from '@/lib/mock-data';
+import type { Assignment, Certificate, ClassSession, GradebookEntry } from '@/types';
 import { useLocale } from '@/components/providers/AppProviders';
 
 export function StudentOverview({ studentId }: { studentId: string }) {
   const { formatDate } = useLocale();
-  const courseIds = useMemo(() => getStudentCourseIds(studentId), [studentId]);
-  const enrollments = useMemo(() => getStudentEnrollments(studentId), [studentId]);
-  const grades = useMemo(() => getGradebookForStudent(studentId), [studentId]);
-  const certificates = useMemo(() => getStudentCertificates(studentId), [studentId]);
+  const [certificates, setCertificates] = useState<Certificate[]>([]);
+  const [enrollments, setEnrollments] = useState<{ id: string; userId: string; courseId: string; status: string }[]>([]);
+  const [sessions, setSessions] = useState<ClassSession[]>([]);
+  const [grades, setGrades] = useState<GradebookEntry[]>([]);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/certificates?userId=${encodeURIComponent(studentId)}`)
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (active) setCertificates(Array.isArray(json.data) ? json.data : []);
+      })
+      .catch(() => {
+        if (active) setCertificates([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [studentId]);
+
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/enrollments?userId=${encodeURIComponent(studentId)}`)
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (active) setEnrollments(Array.isArray(json.data) ? json.data : []);
+      })
+      .catch(() => {
+        if (active) setEnrollments([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [studentId]);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/sessions')
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (active) setSessions(Array.isArray(json.data) ? (json.data as ClassSession[]) : []);
+      })
+      .catch(() => {
+        if (active) setSessions([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const courseIds = useMemo(
+    () => enrollments.filter((e) => e.status === 'active').map((e) => e.courseId),
+    [enrollments],
+  );
+
+  useEffect(() => {
+    let active = true;
+    if (courseIds.length === 0) {
+      setGrades([]);
+      setAssignments([]);
+      return;
+    }
+    const gradesFetches = courseIds.map((id) =>
+      fetch(`/api/gradebook/${encodeURIComponent(id)}`)
+        .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+        .then((json) => (Array.isArray(json.data) ? json.data : []))
+        .catch(() => []),
+    );
+    const assignmentsFetches = courseIds.map((id) =>
+      fetch(`/api/assignments/${encodeURIComponent(id)}`)
+        .then((res) => (res.ok ? res.json() : Promise.resolve({ data: { assignments: [] } })))
+        .then((json) => {
+          const d = json.data;
+          return Array.isArray(d) ? d : Array.isArray(d?.assignments) ? d.assignments : [];
+        })
+        .catch(() => []),
+    );
+    Promise.all([...gradesFetches, ...assignmentsFetches]).then((results) => {
+      if (!active) return;
+      const allGrades = results.slice(0, courseIds.length).flat() as GradebookEntry[];
+      const allAssignments = results.slice(courseIds.length).flat() as Assignment[];
+      setGrades(allGrades.filter((g) => g.userId === studentId));
+      setAssignments(allAssignments);
+    });
+    return () => {
+      active = false;
+    };
+  }, [courseIds, studentId]);
 
   const activeCount = enrollments.filter((e) => e.status === 'active').length;
-  const sessions = MOCK_SESSIONS.filter((s) => courseIds.includes(s.courseId));
-  const upcoming = sessions.filter((s) => s.status === 'scheduled').slice(0, 5);
-  const pendingAssignments = MOCK_ASSIGNMENTS.filter((a) => courseIds.includes(a.courseId)).slice(0, 4);
+  const upcoming = sessions
+    .filter((s) => courseIds.includes(s.courseId) && s.status === 'scheduled')
+    .slice(0, 5);
+  const pendingAssignments = assignments.filter((a) => courseIds.includes(a.courseId)).slice(0, 4);
   const avgGrade = Math.round(
     grades.reduce((sum, g) => sum + g.overallPercentage, 0) / Math.max(1, grades.length),
   );

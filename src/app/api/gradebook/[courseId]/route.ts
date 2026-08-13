@@ -1,20 +1,89 @@
 import { NextRequest } from 'next/server';
-import { MOCK_GRADEBOOK, MOCK_USERS } from '@/lib/mock-data';
-import { ok, notFound, badRequest, parseBody } from '@/lib/api-helpers';
-import type { LetterGrade } from '@/types';
+import { prisma } from '@/lib/prisma';
+import { ok, notFound, badRequest, forbid, parseBody } from '@/lib/api-helpers';
+import { getSessionUser } from '@/lib/auth';
+import { isAdminRole, writeAuditLog } from '@/lib/security';
+import { percentageToLetter } from '@/lib/grading';
 
 export async function GET(_req: NextRequest, { params }: { params: { courseId: string } }) {
-  const entries = MOCK_GRADEBOOK
-    .filter((e) => e.courseId === params.courseId)
-    .map((e) => ({
-      ...e,
-      user: MOCK_USERS.find((u) => u.id === e.userId),
+  const me = await getSessionUser();
+  if (!me) return forbid('Sign in required');
+
+  const course = await prisma.course.findUnique({ where: { id: params.courseId } });
+  if (!course) return notFound('Course not found');
+
+  const isInstructor = course.instructorId === me.id || isAdminRole(me.roles);
+  const isEnrolled = await prisma.enrollment.findUnique({
+    where: { userId_courseId: { userId: me.id, courseId: params.courseId } },
+  });
+
+  if (isInstructor || isEnrolled) {
+    const entries = await prisma.gradebookEntry.findMany({
+      where: { courseId: params.courseId },
+      include: { user: { select: { id: true, fullName: true, email: true } } },
+      orderBy: { lastUpdated: 'desc' },
+    });
+
+    const data = entries.map((e) => ({
+      id: e.id,
+      courseId: e.courseId,
+      userId: e.userId,
+      quizScores: JSON.parse(e.quizScoresJson as unknown as string),
+      assignmentScores: JSON.parse(e.assignmentScoresJson as unknown as string),
+      practicalScore: e.practicalScore,
+      overallPercentage: e.overallPercentage,
+      letterGrade: e.letterGrade,
+      comments: e.comments,
+      lastUpdated: e.lastUpdated.toISOString(),
+      user: e.user,
     }));
 
-  return ok(entries);
+    return ok(data);
+  }
+
+  const linkedStudents = await prisma.parentStudentLink.findMany({
+    where: { parentId: me.id },
+    select: { studentId: true },
+  });
+  const linkedIds = linkedStudents.map((l) => l.studentId);
+  const enrolled = await prisma.enrollment.findFirst({
+    where: { courseId: params.courseId, userId: { in: linkedIds }, status: { in: ['active', 'completed', 'pending'] } },
+  });
+  if (!enrolled) return forbid('You are not enrolled in this course');
+
+  const entries = await prisma.gradebookEntry.findMany({
+    where: { courseId: params.courseId, userId: { in: linkedIds } },
+    include: { user: { select: { id: true, fullName: true, email: true } } },
+    orderBy: { lastUpdated: 'desc' },
+  });
+
+  const data = entries.map((e) => ({
+    id: e.id,
+    courseId: e.courseId,
+    userId: e.userId,
+    quizScores: JSON.parse(e.quizScoresJson as unknown as string),
+    assignmentScores: JSON.parse(e.assignmentScoresJson as unknown as string),
+    practicalScore: e.practicalScore,
+    overallPercentage: e.overallPercentage,
+    letterGrade: e.letterGrade,
+    comments: e.comments,
+    lastUpdated: e.lastUpdated.toISOString(),
+    user: e.user,
+  }));
+
+  return ok(data);
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: { courseId: string } }) {
+  const me = await getSessionUser();
+  if (!me) return forbid('Sign in required');
+
+  const course = await prisma.course.findUnique({ where: { id: params.courseId } });
+  if (!course) return notFound('Course not found');
+  if (course.instructorId !== me.id && !isAdminRole(me.roles)) {
+    return forbid('Only the course instructor or an administrator can grade');
+  }
+
   try {
     const body = await parseBody<{
       userId: string;
@@ -24,35 +93,62 @@ export async function PATCH(request: NextRequest, { params }: { params: { course
       assignmentScores?: { assignmentId: string; score: number; feedback?: string }[];
     }>(request);
 
-    const entry = MOCK_GRADEBOOK.find((e) => e.courseId === params.courseId && e.userId === body.userId);
-    if (!entry) return notFound('Gradebook entry not found');
+    if (!body.userId) return badRequest('userId is required');
 
-    if (body.practicalScore !== undefined) entry.practicalScore = body.practicalScore;
-    if (body.comments !== undefined) entry.comments = body.comments;
-    if (body.quizScores) body.quizScores.forEach((qs) => { const existing = entry.quizScores.find((e) => e.quizId === qs.quizId); if (existing) { existing.score = qs.score; existing.percentage = (qs.score / 80) * 100; } });
-    if (body.assignmentScores) body.assignmentScores.forEach((as) => { const existing = entry.assignmentScores.find((e) => e.assignmentId === as.assignmentId); if (existing) { existing.score = as.score; existing.percentage = (as.score / 100) * 100; } });
+    const existing = await prisma.gradebookEntry.findUnique({
+      where: { courseId_userId: { courseId: params.courseId, userId: body.userId } },
+    });
 
-    const allScores = [...entry.quizScores.map((q) => q.percentage), ...entry.assignmentScores.map((a) => a.percentage), entry.practicalScore];
-    entry.overallPercentage = Math.round(allScores.reduce((sum, s) => sum + s, 0) / allScores.length * 10) / 10;
-    entry.letterGrade = percentageToLetter(entry.overallPercentage);
-    entry.lastUpdated = new Date().toISOString();
+    if (!existing) return notFound('Gradebook entry not found');
+
+    const quizScores = body.quizScores ? JSON.parse(existing.quizScoresJson as unknown as string) : JSON.parse(existing.quizScoresJson as unknown as string);
+    const assignmentScores = body.assignmentScores
+      ? JSON.parse(existing.assignmentScoresJson as unknown as string)
+      : JSON.parse(existing.assignmentScoresJson as unknown as string);
+
+    if (body.quizScores) {
+      body.quizScores.forEach((qs) => {
+        const item = quizScores.find((e: { quizId: string }) => e.quizId === qs.quizId);
+        if (item) item.score = qs.score;
+      });
+    }
+    if (body.assignmentScores) {
+      body.assignmentScores.forEach((as) => {
+        const item = assignmentScores.find((e: { assignmentId: string }) => e.assignmentId === as.assignmentId);
+        if (item) item.score = as.score;
+      });
+    }
+
+    const scores = [
+      ...quizScores.map((q: { score: number; total?: number }) => (q.total ? (q.score / q.total) * 100 : q.score)),
+      ...assignmentScores.map((a: { score: number; total?: number }) => (a.total ? (a.score / a.total) * 100 : a.score)),
+      body.practicalScore !== undefined ? body.practicalScore : existing.practicalScore,
+    ];
+
+    const overallPercentage = Math.round((scores.reduce((sum, s) => sum + s, 0) / scores.length) * 10) / 10;
+
+    const entry = await prisma.gradebookEntry.update({
+      where: { id: existing.id },
+      data: {
+        practicalScore: body.practicalScore ?? existing.practicalScore,
+        comments: body.comments !== undefined ? body.comments : existing.comments,
+        quizScoresJson: JSON.stringify(quizScores),
+        assignmentScoresJson: JSON.stringify(assignmentScores),
+        overallPercentage,
+        letterGrade: percentageToLetter(overallPercentage),
+      },
+      include: { user: { select: { id: true, fullName: true, email: true } } },
+    });
+
+    await writeAuditLog({
+      userId: me.id,
+      action: 'gradebook.updated',
+      resourceType: 'course',
+      resourceId: params.courseId,
+    });
 
     return ok(entry);
   } catch {
     return badRequest('Invalid request body');
   }
-}
-
-function percentageToLetter(pct: number): LetterGrade {
-  if (pct >= 97) return 'A+';
-  if (pct >= 93) return 'A';
-  if (pct >= 90) return 'A-';
-  if (pct >= 87) return 'B+';
-  if (pct >= 83) return 'B';
-  if (pct >= 80) return 'B-';
-  if (pct >= 77) return 'C+';
-  if (pct >= 73) return 'C';
-  if (pct >= 70) return 'C-';
-  if (pct >= 60) return 'D';
-  return 'F';
 }

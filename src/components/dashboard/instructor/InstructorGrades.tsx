@@ -1,47 +1,84 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ClipboardList, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { PageIntro, DataColumn, DataTable, ProgressBarCell, SectionPanel, StatCard } from '@/components/dashboard/primitives';
-import { getInstructorCourses } from '@/lib/dashboard-data';
-import { MOCK_GRADEBOOK } from '@/lib/mock-data';
 import { useLocale } from '@/components/providers/AppProviders';
 import { UserAvatar } from '@/components/ui/UserAvatar';
+import type { Course, GradebookEntry } from '@/types';
+
+type GradeRow = GradebookEntry & { courseTitle: string };
 
 export function InstructorGrades({ instructorId }: { instructorId: string }) {
   const { formatDate } = useLocale();
   const [search, setSearch] = useState('');
   const [courseFilter, setCourseFilter] = useState<string>('all');
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [entries, setEntries] = useState<GradeRow[]>([]);
 
-  const courses = useMemo(() => getInstructorCourses(instructorId), [instructorId]);
-  const courseIds = courses.map((c) => c.id);
+  useEffect(() => {
+    let active = true;
+    fetch('/api/admin/courses')
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (!active) return;
+        const myCourses: Course[] = Array.isArray(json.data)
+          ? json.data.filter((c: Course) => c.instructorId === instructorId)
+          : [];
+        const courseIds = myCourses.map((c) => c.id);
+        setCourses(myCourses);
+        Promise.all(
+          courseIds.map((id) =>
+            fetch(`/api/gradebook/${encodeURIComponent(id)}`)
+              .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+              .then((gradeJson) =>
+                Array.isArray(gradeJson.data)
+                  ? gradeJson.data.map((entry: GradebookEntry) => ({
+                      ...entry,
+                      courseTitle: myCourses.find((c) => c.id === entry.courseId)?.title ?? entry.courseId,
+                    }))
+                  : [],
+              ),
+          ),
+        )
+          .then((rows) => {
+            if (active) setEntries(rows.flat());
+          })
+          .catch(() => {
+            if (active) setEntries([]);
+          });
+      })
+      .catch(() => {
+        if (active) {
+          setCourses([]);
+          setEntries([]);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [instructorId]);
 
-  const entries = useMemo(
-    () =>
-      MOCK_GRADEBOOK.map((entry) => ({
-        ...entry,
-        courseTitle: courses.find((c) => c.id === entry.courseId)?.title ?? entry.courseId,
-      })).filter((entry) => courseIds.includes(entry.courseId)),
-    [courses, courseIds],
-  );
-
-  const filtered = entries.filter((entry) => {
+  const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    const matchesSearch = !q || entry.user?.name.toLowerCase().includes(q) || entry.courseTitle.toLowerCase().includes(q);
-    const matchesCourse = courseFilter === 'all' || entry.courseId === courseFilter;
-    return matchesSearch && matchesCourse;
-  });
+    return entries.filter((entry) => {
+      const name = (entry.user?.fullName ?? entry.user?.name ?? '').toLowerCase();
+      const matchesSearch = !q || name.includes(q) || entry.courseTitle.toLowerCase().includes(q);
+      const matchesCourse = courseFilter === 'all' || entry.courseId === courseFilter;
+      return matchesSearch && matchesCourse;
+    });
+  }, [entries, search, courseFilter]);
 
-  const columns: DataColumn<(typeof entries)[number]>[] = [
+  const columns: DataColumn<GradeRow>[] = [
     {
       key: 'student',
       header: 'Student',
       render: (entry) => (
         <div className="flex items-center gap-3">
-          <UserAvatar name={entry.user?.name ?? '?'} size="sm" />
+          <UserAvatar name={entry.user?.fullName ?? entry.user?.name ?? '?'} size="sm" />
           <div className="min-w-0">
-            <p className="truncate font-medium text-text-primary">{entry.user?.name}</p>
+            <p className="truncate font-medium text-text-primary">{entry.user?.fullName ?? entry.user?.name}</p>
             <p className="truncate text-xs text-text-muted">{entry.courseTitle}</p>
           </div>
         </div>

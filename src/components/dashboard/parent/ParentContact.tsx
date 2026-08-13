@@ -1,25 +1,113 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Send } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { PageIntro, SectionPanel, StatCard } from '@/components/dashboard/primitives';
-import { getLinkedStudentIds } from '@/lib/dashboard-data';
-import { MOCK_DIRECT_MESSAGES, MOCK_USERS } from '@/lib/mock-data';
-import { useLocale } from '@/components/providers/AppProviders';
+import { useLocale, useSession } from '@/components/providers/AppProviders';
 import { UserAvatar } from '@/components/ui/UserAvatar';
+
+type InstructorOption = { id: string; fullName: string; email?: string };
+
+type ContactMessage = {
+  id: string;
+  senderId: string;
+  receiverId: string;
+  subject: string;
+  content: string;
+  isRead: boolean;
+  createdAt: string;
+};
 
 export function ParentContact({ parentId }: { parentId: string }) {
   const { formatDate } = useLocale();
-  const studentIds = useMemo(() => getLinkedStudentIds(parentId), [parentId]);
-  const instructors = MOCK_USERS.filter((u) => u.roles.includes('instructor'));
-  const [selectedInstructor, setSelectedInstructor] = useState(instructors[0]?.id ?? '');
+  const { user } = useSession();
+  const [instructors, setInstructors] = useState<InstructorOption[]>([]);
+  const [messages, setMessages] = useState<ContactMessage[]>([]);
+  const [studentCount, setStudentCount] = useState(0);
+  const [selectedInstructor, setSelectedInstructor] = useState('');
   const [sent, setSent] = useState(false);
 
-  const myMessages = MOCK_DIRECT_MESSAGES.filter((m) => m.senderId === parentId || m.receiverId === parentId).sort(
-    (a, b) => (a.createdAt < b.createdAt ? 1 : -1),
-  );
+  useEffect(() => {
+    let active = true;
+
+    async function load() {
+      const [links, coursesJson, messagesJson] = await Promise.all([
+        fetch(`/api/users/${encodeURIComponent(user.id)}/linked-students`)
+          .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+          .then((json) => (Array.isArray(json.data) ? json.data : [])),
+        fetch('/api/courses?pageSize=50')
+          .then((res) => (res.ok ? res.json() : Promise.resolve({ data: { data: [] } })))
+          .then((json) => {
+            const payload = json?.data?.data;
+            return Array.isArray(payload) ? payload : [];
+          }),
+        fetch('/api/messages')
+          .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+          .then((json) => (Array.isArray(json.data) ? json.data : [])),
+      ]);
+
+      const instructorMap = new Map<string, InstructorOption>();
+      coursesJson.forEach((course: { instructor?: { id?: string; fullName?: string; email?: string } }) => {
+        const instructor = course.instructor;
+        if (!instructor?.id) return;
+        const existing = instructorMap.get(instructor.id);
+        instructorMap.set(instructor.id, {
+          id: instructor.id,
+          fullName: instructor.fullName ?? existing?.fullName ?? '',
+          email: instructor.email ?? existing?.email,
+        });
+      });
+
+      const threadMessages: ContactMessage[] = [];
+      messagesJson.forEach((thread: { messages?: unknown[] }) => {
+        if (!Array.isArray(thread.messages)) return;
+        thread.messages.forEach((msg) => {
+          const m = msg as Partial<ContactMessage>;
+          if (!m?.id) return;
+          threadMessages.push({
+            id: m.id,
+            senderId: m.senderId ?? '',
+            receiverId: m.receiverId ?? '',
+            subject: m.subject ?? '',
+            content: m.content ?? '',
+            isRead: m.isRead ?? false,
+            createdAt: m.createdAt ?? '',
+          });
+        });
+      });
+      threadMessages.forEach((msg) => {
+        const otherId = msg.senderId === user.id ? msg.receiverId : msg.senderId;
+        if (!otherId) return;
+        const participant = messagesJson
+          .flatMap((thread: { participant?: { id: string; fullName: string; email?: string } }) =>
+            thread.participant ? [thread.participant] : [],
+          )
+          .find((p: { id: string }) => p.id === otherId);
+        if (participant?.email) {
+          const existing = instructorMap.get(participant.id);
+          if (existing) existing.email = participant.email;
+        }
+      });
+
+      const messageList = threadMessages.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+      const instructorList = Array.from(instructorMap.values());
+
+      if (!active) return;
+      setStudentCount(links.length);
+      setMessages(messageList);
+      setInstructors(instructorList);
+      setSelectedInstructor((prev) => prev || instructorList[0]?.id || '');
+    }
+
+    load();
+    return () => {
+      active = false;
+    };
+  }, [user.id]);
+
+  const myMessages = messages;
 
   const handleSend = () => {
     setSent(true);
@@ -36,7 +124,7 @@ export function ParentContact({ parentId }: { parentId: string }) {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Instructors" value={instructors.length} hint="Available to contact" icon={Send} tone="gold" />
-        <StatCard label="Linked Students" value={studentIds.length} hint="Guardian profiles" icon={Send} tone="blue" />
+        <StatCard label="Linked Students" value={studentCount} hint="Guardian profiles" icon={Send} tone="blue" />
         <StatCard label="Conversations" value={myMessages.length} hint="Message history" icon={Send} tone="brown" />
       </div>
 
@@ -54,7 +142,7 @@ export function ParentContact({ parentId }: { parentId: string }) {
                   <UserAvatar name={instructor.fullName} size="sm" />
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-text-primary">{instructor.fullName}</p>
-                    <p className="truncate text-xs text-text-muted">{instructor.email}</p>
+                    <p className="truncate text-xs text-text-muted">{instructor.email ?? 'EMIT Instructor'}</p>
                   </div>
                 </button>
               </li>

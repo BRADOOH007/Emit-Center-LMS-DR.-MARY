@@ -1,36 +1,45 @@
 import { NextRequest } from 'next/server';
-import { MOCK_NOTIFICATIONS } from '@/lib/mock-data';
-import { ok, badRequest, parseBody } from '@/lib/api-helpers';
+import { prisma } from '@/lib/prisma';
+import { ok, badRequest, forbid, parseBody } from '@/lib/api-helpers';
+import { getSessionUser } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
+  const me = await getSessionUser();
+  if (!me) return forbid('Sign in required');
+
   const { searchParams } = request.nextUrl;
-  const userId = searchParams.get('userId') ?? 'usr_0004';
   const unreadOnly = searchParams.get('unreadOnly') === '1';
 
-  let notifications = MOCK_NOTIFICATIONS.filter((n) => n.userId === userId);
-  if (unreadOnly) notifications = notifications.filter((n) => !n.isRead);
-
-  notifications.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const notifications = await prisma.notification.findMany({
+    where: { userId: me.id, ...(unreadOnly ? { isRead: false } : {}) },
+    orderBy: { createdAt: 'desc' },
+  });
 
   return ok(notifications);
 }
 
 export async function PATCH(request: NextRequest) {
-  try {
-    const body = await parseBody<{ notificationIds?: string[]; markAll?: boolean; userId?: string }>(request);
-    if (body.markAll && body.userId) {
-      MOCK_NOTIFICATIONS.forEach((n) => { if (n.userId === body.userId) n.isRead = true; });
-      return ok({ markedAll: true });
-    }
-    if (body.notificationIds) {
-      body.notificationIds.forEach((id) => {
-        const item = MOCK_NOTIFICATIONS.find((n) => n.id === id);
-        if (item) item.isRead = true;
-      });
-      return ok({ markedCount: body.notificationIds.length });
-    }
-    return badRequest('Provide notificationIds or markAll');
-  } catch {
-    return badRequest('Invalid request body');
+  const me = await getSessionUser();
+  if (!me) return forbid('Sign in required');
+
+  const body = await parseBody<{ notificationIds?: string[]; markAll?: boolean }>(request).catch(() => null);
+  if (!body) return badRequest('Invalid request body');
+
+  if (body.markAll) {
+    await prisma.notification.updateMany({
+      where: { userId: me.id, isRead: false },
+      data: { isRead: true },
+    });
+    return ok({ markedAll: true });
   }
+
+  if (body.notificationIds?.length) {
+    const result = await prisma.notification.updateMany({
+      where: { id: { in: body.notificationIds }, userId: me.id },
+      data: { isRead: true },
+    });
+    return ok({ markedCount: result.count });
+  }
+
+  return badRequest('Provide notificationIds or markAll');
 }

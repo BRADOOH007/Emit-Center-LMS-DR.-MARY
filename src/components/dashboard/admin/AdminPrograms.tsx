@@ -1,14 +1,13 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { GraduationCap, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { PageIntro, SectionPanel, StatCard } from '@/components/dashboard/primitives';
-import { getPrograms } from '@/lib/dashboard-data';
 import { useLocale } from '@/components/providers/AppProviders';
 import type { Program } from '@/types/dashboard';
-import type { CourseSubject } from '@/types';
+import type { CourseSubject, DeliveryFormat } from '@/types';
 
 const FORMAT_TONES: Record<string, 'gold' | 'brown' | 'success'> = {
   onsite: 'brown',
@@ -16,13 +15,61 @@ const FORMAT_TONES: Record<string, 'gold' | 'brown' | 'success'> = {
   hybrid: 'success',
 };
 
+interface ProgramCourse {
+  id: string;
+  title: string;
+  subject: string;
+  format: string;
+  enrolledCount: number;
+  schedule: { startDate: string; endDate: string; days: string[] };
+}
+
 export function AdminPrograms() {
   const { formatDate } = useLocale();
-  const programs = useMemo(() => getPrograms(), []);
+  const [courses, setCourses] = useState<ProgramCourse[]>([]);
   const [search, setSearch] = useState('');
   const [composerOpen, setComposerOpen] = useState(false);
   const [added, setAdded] = useState<Program[]>([]);
   const [draft, setDraft] = useState({ name: '', description: '', format: 'onsite' as 'onsite' | 'online' | 'hybrid', subject: 'coding' as CourseSubject });
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/admin/courses')
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (active) setCourses(Array.isArray(json.data) ? (json.data as ProgramCourse[]) : []);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const programs = useMemo<Program[]>(() => {
+    const bySubject = new Map<string, ProgramCourse[]>();
+    courses.forEach((course) => {
+      const list = bySubject.get(course.subject) ?? [];
+      list.push(course);
+      bySubject.set(course.subject, list);
+    });
+    return Array.from(bySubject.entries()).map(([subject, list]) => {
+      const formats = Array.from(new Set(list.map((c) => c.format))) as DeliveryFormat[];
+      const startDates = list.map((c) => c.schedule.startDate).sort();
+      const endDates = list.map((c) => c.schedule.endDate).sort();
+      return {
+        id: `prg_${subject}`,
+        name: subject.replace(/-/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase()),
+        subject: subject as CourseSubject,
+        description: `${list.length} course${list.length === 1 ? '' : 's'} in this track across EMIT programs.`,
+        courseCount: list.length,
+        enrolledCount: list.reduce((sum, c) => sum + c.enrolledCount, 0),
+        formats,
+        status: 'active',
+        startDate: startDates[0] ?? new Date().toISOString(),
+        endDate: endDates[endDates.length - 1] ?? new Date().toISOString(),
+      };
+    });
+  }, [courses]);
 
   const allPrograms = [...added, ...programs];
 

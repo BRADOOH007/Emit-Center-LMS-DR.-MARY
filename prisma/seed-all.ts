@@ -3,21 +3,34 @@ import { hashSync } from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
+function seedPassword(): string {
+  return process.env.SEED_PASSWORD || 'ChangeMe123!';
+}
+
+const users = [
+  { email: 'marongo@learn.emitcenter.com', fullName: 'Mar Ongo', roles: ['super_admin'] as RoleName[], activeRole: 'super_admin' as const },
+  { email: 'admin@emitcenter.com', fullName: 'Admin User', roles: ['administrator'] as RoleName[], activeRole: 'administrator' as const },
+  { email: 'instructor@emitcenter.com', fullName: 'Sarah Instructor', roles: ['instructor'] as RoleName[], activeRole: 'instructor' as const },
+  { email: 'student@emitcenter.com', fullName: 'Alex Student', roles: ['student'] as RoleName[], activeRole: 'student' as const },
+  { email: 'test@emitcenter.com', fullName: 'Test Student', roles: ['student'] as RoleName[], activeRole: 'student' as const },
+  { email: 'parent@emitcenter.com', fullName: 'Jordan Parent', roles: ['parent'] as RoleName[], activeRole: 'parent' as const },
+];
+
 async function main() {
-  const users = [
-    { email: 'marongo@learn.emitcenter.com', fullName: 'Mar Ongo', password: 'Root26', roles: ['super_admin'] as RoleName[], activeRole: 'super_admin' as const },
-    { email: 'admin@emitcenter.com', fullName: 'Admin User', password: 'Root26', roles: ['administrator'] as RoleName[], activeRole: 'administrator' as const },
-    { email: 'instructor@emitcenter.com', fullName: 'Sarah Instructor', password: 'Root26', roles: ['instructor'] as RoleName[], activeRole: 'instructor' as const },
-    { email: 'student@emitcenter.com', fullName: 'Alex Student', password: 'Root26', roles: ['student'] as RoleName[], activeRole: 'student' as const },
-    { email: 'parent@emitcenter.com', fullName: 'Jordan Parent', password: 'Root26', roles: ['parent'] as RoleName[], activeRole: 'parent' as const },
-  ];
+  const password = seedPassword();
+  const passwordHash = hashSync(password, 12);
 
   for (const u of users) {
     const existing = await prisma.user.findUnique({ where: { email: u.email } });
     if (existing) {
       await prisma.user.update({
         where: { email: u.email },
-        data: { roles: u.roles, activeRole: u.activeRole },
+        data: {
+          roles: u.roles,
+          activeRole: u.activeRole,
+          passwordHash,
+          emailVerifiedAt: existing.emailVerifiedAt ?? new Date(),
+        },
       });
       console.log(`Updated: ${u.email} (${u.activeRole})`);
     } else {
@@ -25,9 +38,10 @@ async function main() {
         data: {
           email: u.email,
           fullName: u.fullName,
-          passwordHash: hashSync(u.password, 12),
+          passwordHash,
           roles: u.roles,
           activeRole: u.activeRole,
+          emailVerifiedAt: new Date(),
           timezone: 'America/New_York',
           locale: 'en-US',
           currency: 'USD',
@@ -36,12 +50,14 @@ async function main() {
       console.log(`Created: ${u.email} (${u.activeRole})`);
     }
   }
+
+  console.log(`Seed complete. Demo password: ${password} (set SEED_PASSWORD to override)`);
 }
 
 main()
   .then(async () => {
     await prisma.$disconnect();
-    console.log('Seed complete — all 5 role users ready.');
+    console.log('Done.');
   })
   .catch(async (e) => {
     console.error(e);

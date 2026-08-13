@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -13,7 +13,11 @@ import {
   Trash2,
   UserX,
 } from 'lucide-react';
-import { MOCK_CONSENT_RECORDS, MOCK_DATA_EXPORT_REQUESTS, MOCK_DELETION_REQUESTS } from '@/lib/mock-data';
+import type {
+  AccountDeletionRequest,
+  ConsentRecord,
+  DataExportRequest,
+} from '@/types';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/utils';
@@ -25,11 +29,57 @@ export function PrivacySettings({ userId }: { userId: string }) {
   const [deletionReason, setDeletionReason] = useState('');
   const [deletionResult, setDeletionResult] = useState<{ status?: string; gracePeriodEnd?: string } | null>(null);
   const [deletionLoading, setDeletionLoading] = useState(false);
+  const [consentRecords, setConsentRecords] = useState<ConsentRecord[]>([]);
+  const [exportHistory, setExportHistory] = useState<DataExportRequest[]>([]);
+  const [deletionRequests, setDeletionRequests] = useState<AccountDeletionRequest[]>([]);
 
-  const consentRecords = MOCK_CONSENT_RECORDS.filter((r) => r.userId === userId);
-  const exportHistory = MOCK_DATA_EXPORT_REQUESTS.filter((r) => r.userId === userId);
-  const deletionRequest = MOCK_DELETION_REQUESTS.find(
-    (r) => r.userId === userId && (r.status === 'pending' || r.status === 'grace_period'),
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/compliance/consent/${encodeURIComponent(userId)}`)
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (active) setConsentRecords(Array.isArray(json.data) ? (json.data as ConsentRecord[]) : []);
+      })
+      .catch(() => {
+        if (active) setConsentRecords([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [userId]);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/compliance/data-export')
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (active) setExportHistory(Array.isArray(json.data) ? (json.data as DataExportRequest[]) : []);
+      })
+      .catch(() => {
+        if (active) setExportHistory([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [userId]);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/compliance/account-deletion')
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (active) setDeletionRequests(Array.isArray(json.data) ? (json.data as AccountDeletionRequest[]) : []);
+      })
+      .catch(() => {
+        if (active) setDeletionRequests([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [userId]);
+
+  const deletionRequest = deletionRequests.find(
+    (r) => r.status === 'pending' || r.status === 'grace_period',
   );
 
   const handleExport = useCallback(async () => {
@@ -41,7 +91,10 @@ export function PrivacySettings({ userId }: { userId: string }) {
         body: JSON.stringify({ userId, format: exportFormat }),
       });
       const json = await res.json();
-      if (json.success) setExportResult(json.data);
+      if (json.success) {
+        setExportResult(json.data);
+        setExportHistory((prev) => [json.data, ...prev]);
+      }
     } finally {
       setExportLoading(false);
     }
@@ -56,7 +109,10 @@ export function PrivacySettings({ userId }: { userId: string }) {
         body: JSON.stringify({ userId, reason: deletionReason }),
       });
       const json = await res.json();
-      if (json.success) setDeletionResult(json.data);
+      if (json.success) {
+        setDeletionResult(json.data);
+        setDeletionRequests((prev) => [json.data, ...prev]);
+      }
     } finally {
       setDeletionLoading(false);
     }
@@ -245,7 +301,24 @@ export function PrivacySettings({ userId }: { userId: string }) {
 }
 
 export function CoppAVerificationBanner({ userId }: { userId: string }) {
-  const coppaRecord = MOCK_CONSENT_RECORDS.find((r) => r.userId === userId && r.type === 'coppa');
+  const [records, setRecords] = useState<ConsentRecord[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/compliance/consent/${encodeURIComponent(userId)}`)
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (active) setRecords(Array.isArray(json.data) ? (json.data as ConsentRecord[]) : []);
+      })
+      .catch(() => {
+        if (active) setRecords([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [userId]);
+
+  const coppaRecord = records.find((r) => r.userId === userId && r.type === 'coppa');
   if (!coppaRecord || coppaRecord.status === 'verified') return null;
 
   return (

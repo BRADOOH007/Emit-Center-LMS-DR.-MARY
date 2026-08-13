@@ -1,85 +1,98 @@
 import { NextRequest } from 'next/server';
-import { MOCK_DELETION_REQUESTS, MOCK_CONSENT_RECORDS, MOCK_AUDIT_LOGS } from '@/lib/mock-data';
-import { ok, notFound, badRequest, parseBody } from '@/lib/api-helpers';
-import { generateId } from '@/lib/validation';
+import { prisma } from '@/lib/prisma';
+import { ok, badRequest, forbid, parseBody } from '@/lib/api-helpers';
+import { getSessionUser } from '@/lib/auth';
+import { isAdminRole, isRateLimited, writeAuditLog } from '@/lib/security';
 
-export async function GET(_req: NextRequest, { params }: { params: { userId: string } }) {
-  const reqs = MOCK_DELETION_REQUESTS.filter((r) => r.userId === params.userId);
-  return ok(reqs);
+export async function GET(request: NextRequest) {
+  const me = await getSessionUser();
+  if (!me) return forbid('Sign in required');
+
+  const { searchParams } = request.nextUrl;
+  const userId = searchParams.get('userId');
+
+  if (userId && userId !== me.id && !isAdminRole(me.roles)) return forbid('Not authorized');
+
+  const requests = await prisma.accountDeletionRequest.findMany({
+    where: { userId: userId ?? me.id },
+    orderBy: { requestedAt: 'desc' },
+  });
+
+  return ok(requests);
 }
 
 export async function POST(request: NextRequest) {
-  try {
-    const body = await parseBody<{ userId: string; reason?: string }>(request);
-    if (!body.userId) return badRequest('userId is required');
+  if (isRateLimited(request)) return badRequest('Too many requests. Please try again later.');
 
-    const existing = MOCK_DELETION_REQUESTS.find(
-      (r) => r.userId === body.userId && (r.status === 'pending' || r.status === 'grace_period'),
-    );
-    if (existing) return badRequest('A deletion request is already in progress.');
+  const me = await getSessionUser();
+  if (!me) return forbid('Sign in required');
 
-    const now = new Date().toISOString();
-    const graceEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  const body = await parseBody<{ reason?: string }>(request).catch(() => null);
 
-    const deletionRequest = {
-      id: generateId('del'),
-      userId: body.userId,
-      status: 'grace_period' as const,
-      reason: body.reason,
+  const existing = await prisma.accountDeletionRequest.findFirst({
+    where: { userId: me.id, status: { in: ['pending', 'grace_period'] } },
+  });
+  if (existing) return badRequest('A deletion request is already in progress.');
+
+  const now = new Date();
+  const graceEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+  const deletionRequest = await prisma.accountDeletionRequest.create({
+    data: {
+      userId: me.id,
+      status: 'grace_period',
+      reason: body?.reason ?? null,
       requestedAt: now,
       gracePeriodEnd: graceEnd,
-    };
+    },
+  });
 
-    MOCK_DELETION_REQUESTS.push(deletionRequest);
-    MOCK_AUDIT_LOGS.push({
-      id: generateId('aud'),
-      userId: body.userId,
-      action: 'account.deletion_requested',
-      resourceType: 'account',
-      resourceId: body.userId,
-      createdAt: now,
-    });
+  await prisma.consentRecord.updateMany({
+    where: { userId: me.id, status: { not: 'expired' } },
+    data: { status: 'expired' },
+  });
 
-    MOCK_CONSENT_RECORDS.forEach((r) => {
-      if (r.userId === body.userId) r.status = 'expired';
-    });
+  await writeAuditLog({
+    userId: me.id,
+    action: 'account.deletion_requested',
+    resourceType: 'account',
+    resourceId: me.id,
+  });
 
-    return ok(deletionRequest);
-  } catch {
-    return badRequest('Invalid request body');
-  }
+  return ok(deletionRequest);
 }
 
 export async function DELETE(request: NextRequest) {
-  try {
-    const body = await parseBody<{ userId: string }>(request);
-    if (!body.userId) return badRequest('userId is required');
+  const me = await getSessionUser();
+  if (!me) return forbid('Sign in required');
 
-    const deletionRequest = MOCK_DELETION_REQUESTS.find(
-      (r) => r.userId === body.userId && r.status === 'grace_period',
-    );
-    if (!deletionRequest) return badRequest('No active grace-period deletion request found.');
+  const deletionRequest = await prisma.accountDeletionRequest.findFirst({
+    where: { userId: me.id, status: 'grace_period' },
+  });
+  if (!deletionRequest) return badRequest('No active grace-period deletion request found.');
 
-    const now = new Date();
-    const graceEnd = new Date(deletionRequest.gracePeriodEnd);
-    if (now < graceEnd) {
-      return badRequest('Grace period has not expired. Deletion will proceed automatically on the scheduled date.');
-    }
-
-    deletionRequest.status = 'completed';
-    deletionRequest.completedAt = now.toISOString();
-
-    MOCK_AUDIT_LOGS.push({
-      id: generateId('aud'),
-      userId: body.userId,
-      action: 'account.deleted',
-      resourceType: 'account',
-      resourceId: body.userId,
-      createdAt: now.toISOString(),
-    });
-
-    return ok({ message: 'Account permanently deleted.', completedAt: now.toISOString() });
-  } catch {
-    return badRequest('Invalid request body');
+  const now = new Date();
+  const graceEnd = deletionRequest.gracePeriodEnd
+    ? new Date(deletionRequest.gracePeriodEnd)
+    : new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  if (now < graceEnd) {
+    return badRequest('Grace period has not expired. Deletion will proceed automatically on the scheduled date.');
   }
+
+  await prisma.accountDeletionRequest.update({
+    where: { id: deletionRequest.id },
+    data: { status: 'completed' },
+  });
+
+  await prisma.auditLog.deleteMany({ where: { userId: me.id } });
+  await prisma.user.delete({ where: { id: me.id } });
+
+  await writeAuditLog({
+    userId: me.id,
+    action: 'account.deleted',
+    resourceType: 'account',
+    resourceId: me.id,
+  });
+
+  return ok({ message: 'Account permanently deleted.' });
 }

@@ -1,29 +1,85 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { FileBarChart, TrendingUp } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { PageIntro, SectionPanel, StatCard } from '@/components/dashboard/primitives';
-import { getGradebookForStudent, getLinkedStudentIds, getStudentCourseIds } from '@/lib/dashboard-data';
-import { MOCK_COURSES, MOCK_USERS } from '@/lib/mock-data';
-import { useLocale } from '@/components/providers/AppProviders';
+import { useLocale, useSession } from '@/components/providers/AppProviders';
+import type { User } from '@/types';
+
+type ReportRow = {
+  id: string;
+  courseId: string;
+  userId: string;
+  overallPercentage: number;
+  letterGrade: string;
+  comments: string;
+  lastUpdated: string;
+  student?: User;
+  courseTitle: string;
+};
 
 export function ParentReports({ parentId }: { parentId: string }) {
   const { formatDate } = useLocale();
-  const studentIds = useMemo(() => getLinkedStudentIds(parentId), [parentId]);
-  const students = MOCK_USERS.filter((u) => studentIds.includes(u.id));
+  const { user } = useSession();
+  const [reports, setReports] = useState<ReportRow[]>([]);
+  const [studentCount, setStudentCount] = useState(0);
 
-  const reports = useMemo(
-    () =>
-      studentIds.flatMap((studentId) =>
-        getGradebookForStudent(studentId).map((grade) => ({
-          ...grade,
-          student: MOCK_USERS.find((u) => u.id === studentId),
-          courseTitle: MOCK_COURSES.find((c) => c.id === grade.courseId)?.title ?? grade.courseId,
-        })),
-      ),
-    [studentIds],
-  );
+  useEffect(() => {
+    let active = true;
+
+    async function load() {
+      const links: { student?: User | null }[] = await fetch(`/api/users/${encodeURIComponent(user.id)}/linked-students`)
+        .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+        .then((json) => (Array.isArray(json.data) ? json.data : []));
+      const studentList: User[] = links
+        .map((link) => link.student)
+        .filter((s): s is User => Boolean(s));
+      const studentIds = studentList.map((s) => s.id);
+
+      const enrollmentRows = await Promise.all(
+        studentIds.map((id) =>
+          fetch(`/api/enrollments?userId=${encodeURIComponent(id)}`)
+            .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+            .then((json) => (Array.isArray(json.data) ? json.data : [])),
+        ),
+      );
+
+      const courseTitleById = new Map<string, string>();
+      enrollmentRows
+        .flat()
+        .forEach((enrollment: { courseId: string; course?: { title?: string } }) => {
+          courseTitleById.set(enrollment.courseId, enrollment.course?.title ?? enrollment.courseId);
+        });
+      const courseIdList = Array.from(courseTitleById.keys());
+
+      const gradebookRows = await Promise.all(
+        courseIdList.map((courseId) =>
+          fetch(`/api/gradebook/${encodeURIComponent(courseId)}`)
+            .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+            .then((json) => (Array.isArray(json.data) ? json.data : [])),
+        ),
+      );
+
+      const reportList: ReportRow[] = gradebookRows
+        .flat()
+        .filter((g: { userId: string }) => studentIds.includes(g.userId))
+        .map((g: ReportRow) => ({
+          ...g,
+          student: studentList.find((s) => s.id === g.userId),
+          courseTitle: courseTitleById.get(g.courseId) ?? g.courseId,
+        }));
+
+      if (!active) return;
+      setStudentCount(studentList.length);
+      setReports(reportList);
+    }
+
+    load();
+    return () => {
+      active = false;
+    };
+  }, [user.id]);
 
   const avg = Math.round(reports.reduce((s, r) => s + r.overallPercentage, 0) / Math.max(1, reports.length));
 
@@ -38,7 +94,7 @@ export function ParentReports({ parentId }: { parentId: string }) {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <StatCard label="Reports" value={reports.length} hint="Grade records" icon={FileBarChart} tone="gold" />
         <StatCard label="Average Grade" value={`${avg}%`} hint="Across all records" icon={TrendingUp} tone="emerald" />
-        <StatCard label="Students" value={students.length} hint="Linked profiles" icon={FileBarChart} tone="blue" />
+        <StatCard label="Students" value={studentCount} hint="Linked profiles" icon={FileBarChart} tone="blue" />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">

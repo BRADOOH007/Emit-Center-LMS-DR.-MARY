@@ -1,29 +1,50 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CalendarDays, MapPin, Monitor, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { PageIntro, DataColumn, DataTable, SectionPanel, StatCard } from '@/components/dashboard/primitives';
-import { MOCK_ROOMS, MOCK_SESSIONS, MOCK_USERS } from '@/lib/mock-data';
 import { StatusBadge } from '@/components/dashboard/status';
 import { useLocale } from '@/components/providers/AppProviders';
-import type { ClassSession } from '@/types';
+import type { ClassSession, FacilityRoom } from '@/types';
 
 export function InstructorClasses({ instructorId }: { instructorId: string }) {
   const { formatDate } = useLocale();
   const [search, setSearch] = useState('');
+  const [mine, setMine] = useState<ClassSession[]>([]);
 
-  const enriched = useMemo(() => MOCK_SESSIONS.map((s) => ({
-    ...s,
-    instructor: MOCK_USERS.find((u) => u.id === s.instructorId),
-    room: s.roomId ? MOCK_ROOMS.find((r) => r.id === s.roomId) : undefined,
-  })), []);
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      fetch(`/api/sessions?instructorId=${encodeURIComponent(instructorId)}`)
+        .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] }))),
+      fetch('/api/resources')
+        .then((res) => (res.ok ? res.json() : Promise.resolve({ data: { rooms: [] } }))),
+    ])
+      .then(([sessionsJson, resourcesJson]) => {
+        if (!active) return;
+        const rooms: FacilityRoom[] = Array.isArray(resourcesJson.data?.rooms) ? resourcesJson.data.rooms : [];
+        const raw: ClassSession[] = Array.isArray(sessionsJson.data) ? sessionsJson.data : [];
+        setMine(
+          raw
+            .filter((s) => s.instructorId === instructorId || (s.course?.instructorId ?? s.instructor?.id) === instructorId)
+            .map((s) => ({ ...s, room: s.roomId ? rooms.find((r) => r.id === s.roomId) : undefined })),
+        );
+      })
+      .catch(() => {
+        if (active) setMine([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [instructorId]);
 
-  const mine = enriched.filter((s) => s.instructorId === instructorId || (s.course?.instructorId ?? s.instructor?.id) === instructorId);
+  const filtered = useMemo(
+    () => mine.filter((s) => s.title.toLowerCase().includes(search.toLowerCase())),
+    [mine, search],
+  );
 
-  const filtered = mine.filter((s) => s.title.toLowerCase().includes(search.toLowerCase()));
-
-  const columns: DataColumn<ClassSession & { room?: (typeof MOCK_ROOMS)[number] }>[] = [
+  const columns: DataColumn<ClassSession>[] = [
     {
       key: 'session',
       header: 'Session',

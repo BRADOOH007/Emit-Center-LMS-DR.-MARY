@@ -1,40 +1,96 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CheckCheck, ClipboardList, Search, XCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { PageIntro, DataColumn, DataTable, SectionPanel, StatCard } from '@/components/dashboard/primitives';
 import { StatusBadge } from '@/components/dashboard/status';
-import { getEnrollments } from '@/lib/dashboard-data';
-import { issueCertificate } from '@/lib/certificates';
 import { useLocale } from '@/components/providers/AppProviders';
 import type { Enrollment } from '@/types/dashboard';
+import type { DeliveryFormat } from '@/types';
+
+function toEnrollment(row: {
+  id: string;
+  userId: string;
+  courseId: string;
+  status: string;
+  createdAt: string;
+  user?: { id: string; fullName: string; email: string; avatarUrl?: string | null } | null;
+  course?: { id: string; title: string; format: string; enrolledCount?: number; maxSeats?: number } | null;
+}): Enrollment {
+  return {
+    id: row.id,
+    userId: row.userId,
+    courseId: row.courseId,
+    status: row.status as Enrollment['status'],
+    createdAt: row.createdAt,
+    updatedAt: row.createdAt,
+    user: row.user
+      ? { id: row.user.id, name: row.user.fullName, email: row.user.email, avatarUrl: row.user.avatarUrl ?? undefined }
+      : undefined,
+    course: row.course
+      ? {
+          id: row.course.id,
+          title: row.course.title,
+          format: row.course.format as DeliveryFormat,
+          enrolledCount: row.course.enrolledCount,
+          maxSeats: row.course.maxSeats,
+        }
+      : undefined,
+  };
+}
 
 export function AdminEnrollments() {
   const { formatDate } = useLocale();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | string>('all');
-  const [rows, setRows] = useState<Enrollment[]>(() => getEnrollments());
+  const [rows, setRows] = useState<Enrollment[]>([]);
   const [lastIssued, setLastIssued] = useState<{ hash: string; studentName: string; courseTitle: string } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/enrollments')
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (active) setRows(Array.isArray(json.data) ? json.data.map(toEnrollment) : []);
+      })
+      .catch(() => {
+        if (active) setRows([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const updateStatus = (id: string, status: Enrollment['status']) => {
     setRows((prev) =>
       prev.map((e) => {
         if (e.id !== id) return e;
         if (status === 'completed') {
-          const issued = issueCertificate({
-            userId: e.userId,
-            courseId: e.courseId,
-            completionDate: new Date().toISOString(),
-          });
-          setLastIssued({ hash: issued.verificationHash, studentName: issued.studentName, courseTitle: issued.courseTitle });
           fetch('/api/certificates', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ userId: e.userId, courseId: e.courseId }),
-          }).catch(() => undefined);
+          })
+            .then((res) => (res.ok ? res.json() : Promise.resolve({ data: null })))
+            .then((json) => {
+              const cert = json.data;
+              if (cert?.verificationHash) {
+                setLastIssued({
+                  hash: cert.verificationHash,
+                  studentName: cert.studentName,
+                  courseTitle: cert.courseTitle,
+                });
+              }
+            })
+            .catch(() => undefined);
         }
+        fetch('/api/enrollments', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, status }),
+        }).catch(() => undefined);
         return { ...e, status };
       }),
     );

@@ -1,12 +1,29 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { CalendarDays } from 'lucide-react';
 import { PageIntro, SectionPanel, StatCard } from '@/components/dashboard/primitives';
 import { CalendarView } from '@/components/schedule/CalendarView';
-import { MOCK_SESSIONS } from '@/lib/mock-data';
+import type { ClassSession } from '@/types';
 
 export function InstructorSchedule({ instructorId }: { instructorId: string }) {
-  const mine = MOCK_SESSIONS.filter((s) => s.instructorId === instructorId);
+  const [mine, setMine] = useState<ClassSession[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/sessions?instructorId=${encodeURIComponent(instructorId)}`)
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (active) setMine(Array.isArray(json.data) ? json.data : []);
+      })
+      .catch(() => {
+        if (active) setMine([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [instructorId]);
+
   const scheduled = mine.filter((s) => s.status === 'scheduled').length;
 
   return (

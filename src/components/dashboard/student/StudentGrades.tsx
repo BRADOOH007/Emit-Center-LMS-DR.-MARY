@@ -1,27 +1,59 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BarChart3, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { PageIntro, DataColumn, DataTable, ProgressBarCell, SectionPanel, StatCard } from '@/components/dashboard/primitives';
-import { getGradebookForStudent } from '@/lib/dashboard-data';
-import { MOCK_COURSES } from '@/lib/mock-data';
 import { useLocale } from '@/components/providers/AppProviders';
+import type { GradebookEntry } from '@/types';
+
+type GradeRow = GradebookEntry & { courseTitle: string };
+
+interface EnrollmentItem {
+  courseId: string;
+  status: string;
+  course?: { title?: string };
+}
 
 export function StudentGrades({ studentId }: { studentId: string }) {
   const { formatDate } = useLocale();
   const [search, setSearch] = useState('');
-  const grades = useMemo(() => getGradebookForStudent(studentId), [studentId]);
+  const [grades, setGrades] = useState<GradeRow[]>([]);
 
-  const entries = grades.map((grade) => ({
-    ...grade,
-    courseTitle: MOCK_COURSES.find((c) => c.id === grade.courseId)?.title ?? grade.courseId,
-  }));
+  useEffect(() => {
+    let active = true;
+    fetch('/api/enrollments')
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then(async (json) => {
+        const enrollments = (Array.isArray(json.data) ? json.data : []) as EnrollmentItem[];
+        const rows = await Promise.all(
+          enrollments.map(async (enrollment) => {
+            const courseTitle = enrollment.course?.title ?? enrollment.courseId;
+            try {
+              const res = await fetch(`/api/gradebook/${encodeURIComponent(enrollment.courseId)}`);
+              const gradeJson = res.ok ? await res.json() : { data: [] };
+              const entries = (Array.isArray(gradeJson.data) ? gradeJson.data : []) as GradebookEntry[];
+              const own = entries.find((entry) => entry.userId === studentId);
+              return own ? { ...own, courseTitle } : null;
+            } catch {
+              return null;
+            }
+          }),
+        );
+        if (active) setGrades(rows.filter((row): row is GradeRow => row !== null));
+      })
+      .catch(() => {
+        if (active) setGrades([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [studentId]);
 
-  const filtered = entries.filter((e) => e.courseTitle.toLowerCase().includes(search.toLowerCase()));
-  const avg = Math.round(entries.reduce((s, e) => s + e.overallPercentage, 0) / Math.max(1, entries.length));
+  const filtered = grades.filter((entry) => entry.courseTitle.toLowerCase().includes(search.toLowerCase()));
+  const avg = Math.round(grades.reduce((s, entry) => s + entry.overallPercentage, 0) / Math.max(1, grades.length));
 
-  const columns: DataColumn<(typeof entries)[number]>[] = [
+  const columns: DataColumn<GradeRow>[] = [
     {
       key: 'course',
       header: 'Course',
@@ -65,14 +97,14 @@ export function StudentGrades({ studentId }: { studentId: string }) {
       <PageIntro
         kicker="Student · Grades"
         title="My Grades"
-        subtitle={`${entries.length} graded courses · overall average ${avg}%`}
+        subtitle={`${grades.length} graded courses · overall average ${avg}%`}
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Average" value={`${avg}%`} hint="Across courses" icon={BarChart3} tone="gold" />
-        <StatCard label="Graded Courses" value={entries.length} hint="With records" icon={BarChart3} tone="blue" />
-        <StatCard label="Strong (A/B)" value={entries.filter((e) => e.overallPercentage >= 80).length} hint="80% or above" icon={BarChart3} tone="emerald" />
-        <StatCard label="Needs Work" value={entries.filter((e) => e.overallPercentage < 70).length} hint="Below 70%" icon={BarChart3} tone="red" />
+        <StatCard label="Graded Courses" value={grades.length} hint="With records" icon={BarChart3} tone="blue" />
+        <StatCard label="Strong (A/B)" value={grades.filter((e) => e.overallPercentage >= 80).length} hint="80% or above" icon={BarChart3} tone="emerald" />
+        <StatCard label="Needs Work" value={grades.filter((e) => e.overallPercentage < 70).length} hint="Below 70%" icon={BarChart3} tone="red" />
       </div>
 
       <div className="relative max-w-sm">

@@ -1,18 +1,79 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BookOpenCheck, LifeBuoy, MessageSquare, Search } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { PageIntro, SectionPanel } from '@/components/dashboard/primitives';
-import { getStudentCourseIds } from '@/lib/dashboard-data';
-import { MOCK_COURSES, MOCK_LESSON_CONTENTS } from '@/lib/mock-data';
+
+interface HelpTopic {
+  id: string;
+  courseId: string;
+  title: string;
+  type: string;
+}
+
+interface MyCourse {
+  id: string;
+  title: string;
+}
+
+interface EnrollmentItem {
+  userId: string;
+  courseId: string;
+  status: string;
+  course?: { title?: string };
+}
+
+interface ContentSection {
+  contents?: { id: string; courseId: string; title: string; type: string }[];
+}
 
 export function StudentSupport({ studentId }: { studentId: string }) {
   const [query, setQuery] = useState('');
   const [submitted, setSubmitted] = useState(false);
-  const courseIds = useMemo(() => getStudentCourseIds(studentId), [studentId]);
-  const myCourses = MOCK_COURSES.filter((c) => courseIds.includes(c.id));
-  const helpTopics = MOCK_LESSON_CONTENTS.filter((c) => courseIds.includes(c.courseId)).slice(0, 6);
+  const [myCourses, setMyCourses] = useState<MyCourse[]>([]);
+  const [helpTopics, setHelpTopics] = useState<HelpTopic[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/enrollments')
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then(async (json) => {
+        const enrollments = (Array.isArray(json.data) ? json.data : []) as EnrollmentItem[];
+        const courses = enrollments
+          .filter((enrollment) => enrollment.userId === studentId && enrollment.status === 'active')
+          .map((enrollment) => ({ id: enrollment.courseId, title: enrollment.course?.title ?? enrollment.courseId }));
+        const topicsByCourse = await Promise.all(
+          courses.map(async (course) => {
+            try {
+              const res = await fetch(`/api/content/${encodeURIComponent(course.id)}`);
+              const contentJson = res.ok ? await res.json() : { data: {} };
+              const data = contentJson.data ?? {};
+              if (!Array.isArray(data.sections)) return [];
+              const sections = data.sections as ContentSection[];
+              return sections
+                .flatMap((section) => section.contents ?? [])
+                .filter((content) => content.courseId === course.id);
+            } catch {
+              return [];
+            }
+          }),
+        );
+        if (active) {
+          setMyCourses(courses);
+          setHelpTopics(topicsByCourse.flat().slice(0, 6));
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setMyCourses([]);
+          setHelpTopics([]);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [studentId]);
 
   const filteredTopics = helpTopics.filter((t) => t.title.toLowerCase().includes(query.toLowerCase()));
 

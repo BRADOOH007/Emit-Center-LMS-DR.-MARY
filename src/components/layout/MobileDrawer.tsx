@@ -5,9 +5,8 @@ import Image from 'next/image';
 import { useEffect, useRef } from 'react';
 import { LogOut, X } from 'lucide-react';
 import type { Role, User } from '@/types';
-import { MAIN_NAV, SIDEBAR_NAV } from '@/config/nav';
-import { ROLE_META } from '@/config/roles';
-import { cn } from '@/lib/utils';
+import { SIDEBAR_NAV } from '@/config/nav';
+import { ROLE_META } from '@/config/roles';import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/Badge';
 import { UserAvatar } from '@/components/ui/UserAvatar';
 
@@ -98,18 +97,6 @@ export function MobileDrawer({
               </Badge>
             </div>
           </div>
-
-          <p className="nav-section">Portal</p>
-          <ul className="space-y-0.5">
-            {MAIN_NAV.map((item) => (
-              <li key={item.href}>
-                <Link href={item.href} onClick={onClose} className="nav-link">
-                  {item.icon && <item.icon aria-hidden="true" className="h-4 w-4 shrink-0" />}
-                  <span className="flex-1 truncate">{item.label}</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
 
           {sections.map((section) => (
             <div key={section.title}>

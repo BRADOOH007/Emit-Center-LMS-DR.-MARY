@@ -1,47 +1,91 @@
 import { NextRequest } from 'next/server';
-import { MOCK_ASSIGNMENTS, MOCK_SUBMISSIONS, MOCK_RUBRICS } from '@/lib/mock-data';
-import { ok, badRequest, parseBody } from '@/lib/api-helpers';
-import { generateId } from '@/lib/validation';
+import { prisma } from '@/lib/prisma';
+import { ok, badRequest, forbid, parseBody } from '@/lib/api-helpers';
+import { getSessionUser } from '@/lib/auth';
+import { isRateLimited, writeAuditLog } from '@/lib/security';
+import { sanitizeInput } from '@/lib/validation';
 
 export async function GET(_req: NextRequest, { params }: { params: { courseId: string } }) {
-  const assignments = MOCK_ASSIGNMENTS.filter((a) => a.courseId === params.courseId);
-  const submissions = MOCK_SUBMISSIONS;
-  const rubrics = MOCK_RUBRICS;
+  const me = await getSessionUser();
+  if (!me) return forbid('Sign in required');
+
+  const assignments = await prisma.assignment.findMany({
+    where: { courseId: params.courseId },
+    orderBy: { dueDate: 'asc' },
+  });
+
+  const submissions = await prisma.submission.findMany({
+    where: { assignment: { courseId: params.courseId } },
+    include: { user: { select: { id: true, fullName: true, email: true } } },
+  });
 
   return ok({
     assignments: assignments.map((a) => ({
-      ...a,
-      rubric: rubrics.find((r) => r.assignmentId === a.id),
+      id: a.id,
+      courseId: a.courseId,
+      title: a.title,
+      description: a.description,
+      dueDate: a.dueDate.toISOString(),
+      points: a.points,
+      allowedFormats: JSON.parse(a.allowedFormats as unknown as string),
+      isPublished: a.isPublished,
+      createdAt: a.createdAt.toISOString(),
       submissions: submissions.filter((s) => s.assignmentId === a.id),
     })),
   });
 }
 
 export async function POST(request: NextRequest) {
-  try {
-    const body = await parseBody<{
-      assignmentId: string;
-      userId: string;
-      fileName?: string;
-      fileSize?: number;
-      textAnswer?: string;
-    }>(request);
-    if (!body.assignmentId || !body.userId) return badRequest('assignmentId and userId are required');
+  if (isRateLimited(request)) return badRequest('Too many requests. Please try again later.');
 
-    const submission = {
-      id: generateId('sub'),
-      assignmentId: body.assignmentId,
-      userId: body.userId,
-      fileName: body.fileName,
-      fileSize: body.fileSize,
-      textAnswer: body.textAnswer,
-      submittedAt: new Date().toISOString(),
-      status: 'submitted' as const,
-    };
+  const me = await getSessionUser();
+  if (!me) return forbid('Sign in to submit');
 
-    MOCK_SUBMISSIONS.push(submission);
-    return ok(submission);
-  } catch {
-    return badRequest('Invalid request body');
+  const body = await parseBody<{
+    assignmentId?: string;
+    fileName?: string;
+    fileSize?: number;
+    textAnswer?: string;
+  }>(request).catch(() => null);
+
+  if (!body?.assignmentId) return badRequest('assignmentId is required');
+
+  const assignment = await prisma.assignment.findUnique({ where: { id: body.assignmentId } });
+  if (!assignment) return badRequest('Assignment not found');
+
+  const enrollment = await prisma.enrollment.findUnique({
+    where: { userId_courseId: { userId: me.id, courseId: assignment.courseId } },
+  });
+  if (!enrollment || enrollment.status !== 'active') {
+    return forbid('You must be enrolled in this course to submit');
   }
+
+  const submission = await prisma.submission.upsert({
+    where: { assignmentId_userId: { assignmentId: assignment.id, userId: me.id } },
+    update: {
+      fileName: sanitizeInput(body.fileName ?? '').slice(0, 255) || 'text-submission.txt',
+      fileSize: body.fileSize ?? 0,
+      status: 'submitted',
+      submittedAt: new Date(),
+      score: null,
+      feedback: null,
+      letterGrade: null,
+    },
+    create: {
+      assignmentId: assignment.id,
+      userId: me.id,
+      fileName: sanitizeInput(body.fileName ?? '').slice(0, 255) || 'text-submission.txt',
+      fileSize: body.fileSize ?? 0,
+      status: 'submitted',
+    },
+  });
+
+  await writeAuditLog({
+    userId: me.id,
+    action: 'submission.created',
+    resourceType: 'assignment',
+    resourceId: assignment.id,
+  });
+
+  return ok(submission);
 }

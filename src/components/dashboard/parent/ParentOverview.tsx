@@ -1,26 +1,104 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CalendarDays, ClipboardList, TrendingUp, UserRound } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { PageIntro, SectionPanel, StatCard } from '@/components/dashboard/primitives';
-import { getGradebookForStudent, getLinkedStudentIds, getStudentCourseIds } from '@/lib/dashboard-data';
-import { MOCK_SESSIONS, MOCK_USERS } from '@/lib/mock-data';
-import { useLocale } from '@/components/providers/AppProviders';
+import { useLocale, useSession } from '@/components/providers/AppProviders';
+import type { ClassSession, User } from '@/types';
+
+type ReportRow = {
+  id: string;
+  courseId: string;
+  userId: string;
+  overallPercentage: number;
+  letterGrade: string;
+  comments: string;
+  lastUpdated: string;
+  student?: User;
+  courseTitle: string;
+};
 
 export function ParentOverview({ parentId }: { parentId: string }) {
   const { formatDate } = useLocale();
-  const studentIds = useMemo(() => getLinkedStudentIds(parentId), [parentId]);
-  const students = MOCK_USERS.filter((u) => studentIds.includes(u.id));
+  const { user } = useSession();
+  const [students, setStudents] = useState<User[]>([]);
+  const [courseIds, setCourseIds] = useState<string[]>([]);
+  const [sessions, setSessions] = useState<ClassSession[]>([]);
+  const [reports, setReports] = useState<ReportRow[]>([]);
 
-  const upcoming = useMemo(() => {
-    const courseIds = studentIds.flatMap((id) => getStudentCourseIds(id));
-    return MOCK_SESSIONS.filter((s) => courseIds.includes(s.courseId) && s.status === 'scheduled').slice(0, 5);
-  }, [studentIds]);
+  useEffect(() => {
+    let active = true;
 
-  const latestReports = useMemo(
-    () => studentIds.flatMap((id) => getGradebookForStudent(id)).slice(0, 4),
-    [studentIds],
+    async function load() {
+      const links: { student?: User | null }[] = await fetch(`/api/users/${encodeURIComponent(user.id)}/linked-students`)
+        .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+        .then((json) => (Array.isArray(json.data) ? json.data : []));
+      const studentList: User[] = links
+        .map((link) => link.student)
+        .filter((s): s is User => Boolean(s));
+      const studentIds = studentList.map((s) => s.id);
+
+      const [enrollmentRows, sessionRows] = await Promise.all([
+        Promise.all(
+          studentIds.map((id) =>
+            fetch(`/api/enrollments?userId=${encodeURIComponent(id)}`)
+              .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+              .then((json) => (Array.isArray(json.data) ? json.data : [])),
+          ),
+        ),
+        fetch('/api/sessions')
+          .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+          .then((json) => (Array.isArray(json.data) ? json.data : [])) as Promise<ClassSession[]>,
+      ]);
+
+      const courseTitleById = new Map<string, string>();
+      enrollmentRows
+        .flat()
+        .forEach((enrollment: { courseId: string; course?: { title?: string } }) => {
+          courseTitleById.set(enrollment.courseId, enrollment.course?.title ?? enrollment.courseId);
+        });
+      const courseIdList = Array.from(courseTitleById.keys());
+
+      const gradebookRows = await Promise.all(
+        courseIdList.map((courseId) =>
+          fetch(`/api/gradebook/${encodeURIComponent(courseId)}`)
+            .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+            .then((json) => (Array.isArray(json.data) ? json.data : [])),
+        ),
+      );
+
+      const reportList: ReportRow[] = gradebookRows
+        .flat()
+        .filter((g: { userId: string }) => studentIds.includes(g.userId))
+        .map((g: ReportRow) => ({
+          ...g,
+          student: studentList.find((s) => s.id === g.userId),
+          courseTitle: courseTitleById.get(g.courseId) ?? g.courseId,
+        }));
+
+      if (!active) return;
+      setStudents(studentList);
+      setCourseIds(courseIdList);
+      setSessions(sessionRows);
+      setReports(reportList);
+    }
+
+    load();
+    return () => {
+      active = false;
+    };
+  }, [user.id]);
+
+  const upcoming = useMemo(
+    () => sessions.filter((s) => courseIds.includes(s.courseId) && s.status === 'scheduled').slice(0, 5),
+    [sessions, courseIds],
+  );
+
+  const latestReports = useMemo(() => reports.slice(0, 4), [reports]);
+
+  const avgGrade = Math.round(
+    latestReports.reduce((s, r) => s + r.overallPercentage, 0) / Math.max(1, latestReports.length),
   );
 
   return (
@@ -35,7 +113,7 @@ export function ParentOverview({ parentId }: { parentId: string }) {
         <StatCard label="Linked Students" value={students.length} hint="Connected accounts" icon={UserRound} tone="gold" />
         <StatCard label="Upcoming Classes" value={upcoming.length} hint="Across linked students" icon={CalendarDays} tone="blue" />
         <StatCard label="Latest Reports" value={latestReports.length} hint="Recent grade records" icon={ClipboardList} tone="brown" />
-        <StatCard label="Avg Grade" value={`${Math.round(latestReports.reduce((s, r) => s + r.overallPercentage, 0) / Math.max(1, latestReports.length))}%`} hint="Latest records" icon={TrendingUp} tone="emerald" />
+        <StatCard label="Avg Grade" value={`${avgGrade}%`} hint="Latest records" icon={TrendingUp} tone="emerald" />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">

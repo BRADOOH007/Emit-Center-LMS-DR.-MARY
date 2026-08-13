@@ -1,35 +1,95 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ClipboardList, FileText, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { PageIntro, DataColumn, DataTable, SectionPanel, StatCard } from '@/components/dashboard/primitives';
-import { getStudentCourseIds } from '@/lib/dashboard-data';
-import { MOCK_ASSIGNMENTS, MOCK_SUBMISSIONS } from '@/lib/mock-data';
 import { useLocale } from '@/components/providers/AppProviders';
 import type { Assignment } from '@/types';
+
+interface AssignmentPayload {
+  id: string;
+  courseId: string;
+  title: string;
+  description: string;
+  dueDate: string;
+  points: number;
+  allowedFormats: string[];
+  isPublished: boolean;
+  createdAt: string;
+  submissions: { userId: string }[];
+}
+
+type AssignmentRow = Assignment & { submitted: boolean };
+
+interface EnrollmentItem {
+  userId: string;
+  courseId: string;
+  status: string;
+}
 
 export function StudentAssignments({ studentId }: { studentId: string }) {
   const { formatDate } = useLocale();
   const [search, setSearch] = useState('');
-  const courseIds = useMemo(() => getStudentCourseIds(studentId), [studentId]);
+  const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
 
-  const assignments = useMemo(
-    () => MOCK_ASSIGNMENTS.filter((a) => courseIds.includes(a.courseId)),
-    [courseIds],
-  );
+  useEffect(() => {
+    let active = true;
+    fetch('/api/enrollments')
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then(async (json) => {
+        const enrollments = (Array.isArray(json.data) ? json.data : []) as EnrollmentItem[];
+        const courseIds = enrollments
+          .filter((e) => e.userId === studentId && e.status === 'active')
+          .map((e) => e.courseId);
+        const lists = await Promise.all(
+          courseIds.map(async (courseId: string) => {
+            try {
+              const res = await fetch(`/api/assignments/${encodeURIComponent(courseId)}`);
+              const assignJson = res.ok ? await res.json() : { data: {} };
+              const data = assignJson.data ?? {};
+              return Array.isArray(data.assignments) ? data.assignments : [];
+            } catch {
+              return [];
+            }
+          }),
+        );
+        const rows = lists
+          .flat()
+          .map((assignment: AssignmentPayload): AssignmentRow => ({
+            ...assignment,
+            submitted: assignment.submissions.some((submission) => submission.userId === studentId),
+          }));
+        if (active) setAssignments(rows);
+      })
+      .catch(() => {
+        if (active) setAssignments([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [studentId]);
+
+  const submit = (assignment: AssignmentRow) => {
+    if (assignment.submitted) return;
+    fetch(`/api/assignments/${assignment.courseId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assignmentId: assignment.id, fileName: 'submission.txt', fileSize: 0 }),
+    })
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: null })))
+      .then((json) => {
+        if (json?.success) {
+          setAssignments((prev) => prev.map((row) => (row.id === assignment.id ? { ...row, submitted: true } : row)));
+        }
+      })
+      .catch(() => undefined);
+  };
 
   const filtered = assignments.filter((a) => a.title.toLowerCase().includes(search.toLowerCase()));
 
-  const [submittedIds, setSubmittedIds] = useState<string[]>(
-    () => MOCK_SUBMISSIONS.filter((s) => s.userId === studentId).map((s) => s.assignmentId),
-  );
-
-  const submit = (assId: string) => setSubmittedIds((prev) => (prev.includes(assId) ? prev : [...prev, assId]));
-  const submitted = (id: string) => submittedIds.includes(id);
-
-  const columns: DataColumn<Assignment>[] = [
+  const columns: DataColumn<AssignmentRow>[] = [
     {
       key: 'assignment',
       header: 'Assignment',
@@ -54,7 +114,7 @@ export function StudentAssignments({ studentId }: { studentId: string }) {
       key: 'status',
       header: 'Status',
       render: (assignment) => (
-        submitted(assignment.id) ? <Badge variant="success">Submitted</Badge> : <Badge variant="gold">Open</Badge>
+        assignment.submitted ? <Badge variant="success">Submitted</Badge> : <Badge variant="gold">Open</Badge>
       ),
     },
     {
@@ -62,17 +122,17 @@ export function StudentAssignments({ studentId }: { studentId: string }) {
       header: '',
       render: (assignment) => (
         <Button
-          variant={submitted(assignment.id) ? 'outline' : 'gold'}
+          variant={assignment.submitted ? 'outline' : 'gold'}
           size="sm"
-          onClick={() => submit(assignment.id)}
+          onClick={() => submit(assignment)}
         >
-          {submitted(assignment.id) ? 'View' : 'Submit'}
+          {assignment.submitted ? 'View' : 'Submit'}
         </Button>
       ),
     },
   ];
 
-  const openCount = assignments.filter((a) => !submitted(a.id)).length;
+  const openCount = assignments.filter((a) => !a.submitted).length;
 
   return (
     <div className="space-y-6">

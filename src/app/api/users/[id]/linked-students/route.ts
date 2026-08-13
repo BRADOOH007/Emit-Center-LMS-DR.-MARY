@@ -37,8 +37,11 @@ function mapUser(row: {
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const me = await getSessionUser();
-  if (!me || (!me.roles.includes('administrator') && !me.roles.includes('super_admin'))) {
-    return forbid('Only administrators can view linked students');
+  if (!me) return forbid('Sign in required');
+
+  const isAdmin = me.roles.includes('administrator') || me.roles.includes('super_admin');
+  if (!isAdmin && me.id !== params.id) {
+    return forbid('You can only view your own linked students');
   }
 
   const userExists = await prisma.user.findUnique({ where: { id: params.id } });

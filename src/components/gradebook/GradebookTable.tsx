@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowDown,
   ArrowUp,
@@ -10,8 +10,7 @@ import {
   TrendingDown,
   TrendingUp,
 } from 'lucide-react';
-import { MOCK_GRADEBOOK, MOCK_USERS, MOCK_QUIZZES, MOCK_ASSIGNMENTS, MOCK_COURSES } from '@/lib/mock-data';
-import type { GradebookEntry, LetterGrade } from '@/types';
+import type { Course, GradebookEntry, LetterGrade } from '@/types';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/utils';
@@ -38,20 +37,59 @@ export function GradebookTable({ courseId }: { courseId: string }) {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [selectedEntry, setSelectedEntry] = useState<GradebookEntry | null>(null);
   const [commentInput, setCommentInput] = useState('');
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [gradebook, setGradebook] = useState<GradebookEntry[]>([]);
 
-  const course = MOCK_COURSES.find((c) => c.id === courseIdState);
+  useEffect(() => {
+    let active = true;
+    fetch('/api/admin/courses')
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (!active) return;
+        const list = Array.isArray(json.data) ? (json.data as Course[]) : [];
+        setCourses(list);
+        setCourseIdState((prev) => {
+          if (list.length === 0) return prev;
+          return list.some((c) => c.id === prev) ? prev : list[0].id;
+        });
+      })
+      .catch(() => {
+        if (active) setCourses([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (!courseIdState) {
+      setGradebook([]);
+      return;
+    }
+    fetch(`/api/gradebook/${encodeURIComponent(courseIdState)}`)
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (active) setGradebook(Array.isArray(json.data) ? (json.data as GradebookEntry[]) : []);
+      })
+      .catch(() => {
+        if (active) setGradebook([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [courseIdState]);
+
   const entries = useMemo(() => {
-    let data = MOCK_GRADEBOOK.filter((e) => e.courseId === courseIdState).map((e) => ({
-      ...e,
-      user: MOCK_USERS.find((u) => u.id === e.userId),
-    }));
+    let data = gradebook;
 
     if (search) {
       const q = search.toLowerCase();
       data = data.filter((e) => e.user?.fullName.toLowerCase().includes(q) || e.user?.email.toLowerCase().includes(q));
     }
 
-    data.sort((a, b) => {
+    const sorted = [...data];
+    sorted.sort((a, b) => {
       let cmp = 0;
       if (sortField === 'student') cmp = (a.user?.fullName ?? '').localeCompare(b.user?.fullName ?? '');
       else if (sortField === 'overall') cmp = a.overallPercentage - b.overallPercentage;
@@ -59,8 +97,8 @@ export function GradebookTable({ courseId }: { courseId: string }) {
       return sortDir === 'asc' ? cmp : -cmp;
     });
 
-    return data;
-  }, [courseIdState, search, sortField, sortDir]);
+    return sorted;
+  }, [gradebook, search, sortField, sortDir]);
 
   const stats = useMemo(() => {
     if (entries.length === 0) return { avg: 0, max: 0, min: 0, count: 0 };
@@ -78,13 +116,37 @@ export function GradebookTable({ courseId }: { courseId: string }) {
     setSortDir((prev) => (sortField === field && prev === 'asc' ? 'desc' : 'asc'));
   }, [sortField]);
 
-  const handleSaveComment = useCallback(() => {
+  const handleSaveComment = useCallback(async () => {
     if (!selectedEntry) return;
-    selectedEntry.comments = commentInput;
-    selectedEntry.lastUpdated = new Date().toISOString();
-    setSelectedEntry(null);
-    setCommentInput('');
-  }, [selectedEntry, commentInput]);
+    try {
+      const res = await fetch(`/api/gradebook/${encodeURIComponent(courseIdState)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: selectedEntry.userId, comments: commentInput }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setGradebook((prev) =>
+          prev.map((e) =>
+            e.userId === selectedEntry.userId
+              ? { ...e, comments: commentInput, lastUpdated: new Date().toISOString() }
+              : e,
+          ),
+        );
+      }
+    } catch {
+      setGradebook((prev) =>
+        prev.map((e) =>
+          e.userId === selectedEntry.userId
+            ? { ...e, comments: commentInput, lastUpdated: new Date().toISOString() }
+            : e,
+        ),
+      );
+    } finally {
+      setSelectedEntry(null);
+      setCommentInput('');
+    }
+  }, [selectedEntry, commentInput, courseIdState]);
 
   return (
     <div className="space-y-6">
@@ -97,7 +159,7 @@ export function GradebookTable({ courseId }: { courseId: string }) {
             onChange={(e) => setCourseIdState(e.target.value)}
             className="input !py-2 min-w-[18rem]"
           >
-            {MOCK_COURSES.map((c) => (
+            {courses.map((c) => (
               <option key={c.id} value={c.id}>{c.title}</option>
             ))}
           </select>

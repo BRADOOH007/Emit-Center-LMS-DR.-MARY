@@ -1,29 +1,65 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { BookOpen, Eye, EyeOff, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { PageIntro, DataColumn, DataTable, ProgressBarCell, SectionPanel, StatCard } from '@/components/dashboard/primitives';
-import { MOCK_COURSES, MOCK_USERS } from '@/lib/mock-data';
 import { useLocale } from '@/components/providers/AppProviders';
-import type { AgeLevel, Course, CourseSubject, DeliveryFormat } from '@/types';
+import type { AgeLevel, CourseSchedule, CourseSubject, DeliveryFormat, SupportedCurrency } from '@/types';
+
+interface AdminCourse {
+  id: string;
+  title: string;
+  slug: string;
+  description: string;
+  format: DeliveryFormat;
+  ageLevel: AgeLevel;
+  subject: CourseSubject;
+  schedule: CourseSchedule;
+  onsiteLocation?: string;
+  virtualLink?: string;
+  maxSeats: number;
+  enrolledCount: number;
+  instructorId: string;
+  instructor?: { id: string; fullName: string; email: string } | null;
+  pricing: { id: string; courseId: string; currency: SupportedCurrency; amount: number }[];
+  isPublished: boolean;
+  createdAt: string;
+}
 
 export function AdminCourses() {
   const { formatCurrency } = useLocale();
   const [search, setSearch] = useState('');
-  const [published, setPublished] = useState<string[]>([...MOCK_COURSES.map((c) => c.id)]);
+  const [courses, setCourses] = useState<AdminCourse[]>([]);
+  const [published, setPublished] = useState<string[]>([]);
   const [composerOpen, setComposerOpen] = useState(false);
   const [draft, setDraft] = useState({ title: '', subject: 'coding', ageLevel: 'middle', format: 'online', priceUsd: '149' });
-  const [added, setAdded] = useState<Course[]>([]);
+  const [added, setAdded] = useState<AdminCourse[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/admin/courses')
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (!active) return;
+        const data = Array.isArray(json.data) ? (json.data as AdminCourse[]) : [];
+        setCourses(data);
+        setPublished(data.filter((c) => c.isPublished).map((c) => c.id));
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const togglePublished = (id: string) => {
     setPublished((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
-  const courses = [...added, ...MOCK_COURSES];
+  const allCourses = [...added, ...courses];
 
-  const filtered = courses.filter((c) =>
+  const filtered = allCourses.filter((c) =>
     c.title.toLowerCase().includes(search.toLowerCase()) || c.subject.includes(search.toLowerCase()),
   );
 
@@ -31,7 +67,7 @@ export function AdminCourses() {
     if (!draft.title.trim()) return;
     const id = `crs_new_${Date.now()}`;
     const formats = ['onsite', 'online', 'hybrid'] as const;
-    const newCourse: Course = {
+    const newCourse: AdminCourse = {
       id,
       title: draft.title.trim(),
       slug: draft.title.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-'),
@@ -48,7 +84,7 @@ export function AdminCourses() {
       maxSeats: 20,
       enrolledCount: 0,
       instructorId: 'usr_0002',
-      instructor: MOCK_USERS.find((u) => u.id === 'usr_0002'),
+      instructor: undefined,
       pricing: [{ id: `prc_${id}`, courseId: id, currency: 'USD', amount: Math.round(Number(draft.priceUsd || 0) * 100) }],
       isPublished: false,
       createdAt: new Date().toISOString(),
@@ -59,7 +95,7 @@ export function AdminCourses() {
     setDraft({ title: '', subject: 'coding', ageLevel: 'middle', format: 'online', priceUsd: '149' });
   };
 
-  const columns: DataColumn<Course>[] = [
+  const columns: DataColumn<AdminCourse>[] = [
     {
       key: 'course',
       header: 'Course',
@@ -82,7 +118,7 @@ export function AdminCourses() {
     {
       key: 'instructor',
       header: 'Instructor',
-      render: (course) => <span className="text-sm text-text-primary">{course.instructor?.name ?? '—'}</span>,
+      render: (course) => <span className="text-sm text-text-primary">{course.instructor?.fullName ?? '—'}</span>,
     },
     {
       key: 'enrollment',
@@ -125,15 +161,15 @@ export function AdminCourses() {
     },
   ];
 
-  const totalSeats = courses.reduce((s, c) => s + c.maxSeats, 0);
-  const totalEnrolled = courses.reduce((s, c) => s + c.enrolledCount, 0);
+  const totalSeats = allCourses.reduce((s, c) => s + c.maxSeats, 0);
+  const totalEnrolled = allCourses.reduce((s, c) => s + c.enrolledCount, 0);
 
   return (
     <div className="space-y-6">
       <PageIntro
         kicker="Admin · Courses"
         title="Course Catalog"
-        subtitle={`${MOCK_COURSES.length} courses · ${totalEnrolled}/${totalSeats} seats filled across the catalog`}
+        subtitle={`${allCourses.length} courses · ${totalEnrolled}/${totalSeats} seats filled across the catalog`}
         actions={
           <Button onClick={() => setComposerOpen((prev) => !prev)}>
             <BookOpen aria-hidden="true" className="h-4 w-4" /> New Course
@@ -217,10 +253,10 @@ export function AdminCourses() {
       )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Total Courses" value={courses.length} hint={`${published.length} published`} icon={BookOpen} tone="gold" />
+        <StatCard label="Total Courses" value={allCourses.length} hint={`${published.length} published`} icon={BookOpen} tone="gold" />
         <StatCard label="Published" value={published.length} hint="Visible in catalog" icon={BookOpen} tone="emerald" />
-        <StatCard label="Seats Filled" value={Math.round((totalEnrolled / totalSeats) * 100)} hint={`${totalEnrolled} enrolled`} icon={BookOpen} tone="blue" />
-        <StatCard label="Instructors" value={new Set(courses.map((c) => c.instructorId)).size} hint="Active faculty" icon={BookOpen} tone="brown" />
+        <StatCard label="Seats Filled" value={totalSeats > 0 ? Math.round((totalEnrolled / totalSeats) * 100) : 0} hint={`${totalEnrolled} enrolled`} icon={BookOpen} tone="blue" />
+        <StatCard label="Instructors" value={new Set(allCourses.map((c) => c.instructorId)).size} hint="Active faculty" icon={BookOpen} tone="brown" />
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -234,7 +270,7 @@ export function AdminCourses() {
             aria-label="Search courses"
           />
         </div>
-        <span className="text-sm text-text-muted">Showing {filtered.length} of {courses.length}</span>
+        <span className="text-sm text-text-muted">Showing {filtered.length} of {allCourses.length}</span>
       </div>
 
       <SectionPanel>

@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 
 async function main() {
   const email = 'marongo@learn.emitcenter.com';
-  const password = 'Root26';
+  const password = process.env.SEED_PASSWORD || 'ChangeMe123!';
   const passwordHash = hashSync(password, 12);
 
   try {
@@ -15,6 +15,7 @@ async function main() {
         passwordHash,
         roles: ['super_admin'],
         activeRole: 'super_admin',
+        emailVerifiedAt: new Date(),
       },
       create: {
         email,
@@ -22,6 +23,7 @@ async function main() {
         passwordHash,
         roles: ['super_admin'],
         activeRole: 'super_admin',
+        emailVerifiedAt: new Date(),
         timezone: 'America/New_York',
         locale: 'en-US',
         currency: 'USD',
@@ -29,6 +31,7 @@ async function main() {
     });
 
     console.log(`Super admin seeded: ${user.email} (${user.id})`);
+    console.log(`Demo password: ${password} (set SEED_PASSWORD to override)`);
   } catch (error) {
     console.error('Seed error:', error);
   }

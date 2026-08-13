@@ -1,22 +1,32 @@
 import { NextRequest } from 'next/server';
-import { MOCK_CONSENT_RECORDS } from '@/lib/mock-data';
+import { prisma } from '@/lib/prisma';
 import { ok, badRequest, parseBody } from '@/lib/api-helpers';
+import { isRateLimited, writeAuditLog } from '@/lib/security';
 
 export async function POST(request: NextRequest) {
-  try {
-    const body = await parseBody<{ token: string }>(request);
-    if (!body.token) return badRequest('Verification token is required');
+  if (isRateLimited(request)) return badRequest('Too many requests. Please try again later.');
 
-    const record = MOCK_CONSENT_RECORDS.find((r) => r.parentVerificationToken === body.token);
-    if (!record) return badRequest('Invalid or expired verification token');
+  const body = await parseBody<{ token?: string }>(request).catch(() => null);
+  if (!body?.token) return badRequest('Verification token is required');
 
-    if (record.status === 'verified') return ok({ message: 'Already verified', record });
+  const record = await prisma.consentRecord.findFirst({
+    where: { parentVerificationToken: body.token },
+  });
+  if (!record) return badRequest('Invalid or expired verification token');
 
-    record.status = 'verified';
-    record.verifiedAt = new Date().toISOString();
+  if (record.status === 'verified') return ok({ message: 'Already verified', record });
 
-    return ok({ message: 'Parental consent verified successfully.', record });
-  } catch {
-    return badRequest('Invalid request body');
-  }
+  const updated = await prisma.consentRecord.update({
+    where: { id: record.id },
+    data: { status: 'verified', verifiedAt: new Date() },
+  });
+
+  await writeAuditLog({
+    userId: record.userId,
+    action: 'consent.verified',
+    resourceType: 'consent',
+    resourceId: record.id,
+  });
+
+  return ok({ message: 'Parental consent verified successfully.', record: updated });
 }

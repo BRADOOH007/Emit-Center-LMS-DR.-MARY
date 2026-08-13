@@ -2,8 +2,13 @@ import { NextResponse } from 'next/server';
 import { ok, badRequest, parseBody } from '@/lib/api-helpers';
 import { clearSessionCookies, createSessionCookie, verifyLogin } from '@/lib/auth';
 import { isValidEmail } from '@/lib/validation';
+import { isLoginRateLimited, writeAuditLog } from '@/lib/security';
 
 export async function POST(request: Request) {
+  if (isLoginRateLimited(request)) {
+    return badRequest('Too many attempts. Please wait a few minutes and try again.');
+  }
+
   try {
     const body = await parseBody<{ email?: string; password?: string }>(request);
     if (!body.email || !body.password) {
@@ -13,33 +18,24 @@ export async function POST(request: Request) {
       return badRequest('Invalid email format');
     }
 
-    const user = await verifyLogin(body.email, body.password);
+    const user = await verifyLogin(body.email.trim().toLowerCase(), body.password);
     if (!user) {
       return badRequest('Invalid email or password');
     }
 
+    const token = await createSessionCookie(user);
+    await writeAuditLog({
+      userId: user.id,
+      action: 'auth.login',
+      resourceType: 'session',
+    });
+
     const session = {
       user,
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
     };
 
-    const response = NextResponse.json({ success: true, data: session });
-    response.cookies.set('emit_session', user.id, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24,
-      path: '/',
-    });
-    response.cookies.set('emit_role', user.activeRole, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24,
-      path: '/',
-    });
-
-    return response;
+    return NextResponse.json({ success: true, data: session });
   } catch {
     return badRequest('Invalid request');
   }

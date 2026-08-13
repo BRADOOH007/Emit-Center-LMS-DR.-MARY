@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
   MessageSquare,
@@ -9,75 +9,93 @@ import {
   Send,
   UserRound,
 } from 'lucide-react';
-import { MOCK_DIRECT_MESSAGES, MOCK_USERS } from '@/lib/mock-data';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { UserAvatar } from '@/components/ui/UserAvatar';
 import { cn } from '@/lib/utils';
-import type { DirectMessage } from '@/types';
+import type { DirectMessage, User } from '@/types';
+
+interface ThreadRow {
+  id: string;
+  participant: { id: string; fullName: string; email: string; avatarUrl?: string | null };
+  messages: DirectMessage[];
+  unread: number;
+}
 
 export function MessagingInbox({ userId }: { userId: string }) {
   const [search, setSearch] = useState('');
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
   const [replyText, setReplyText] = useState('');
+  const [threads, setThreads] = useState<ThreadRow[]>([]);
 
-  const userMessages = useMemo(
-    () =>
-      MOCK_DIRECT_MESSAGES.filter((m) => m.senderId === userId || m.receiverId === userId)
-        .map((m) => ({
-          ...m,
-          sender: MOCK_USERS.find((u) => u.id === m.senderId),
-          receiver: MOCK_USERS.find((u) => u.id === m.receiverId),
-        }))
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
-    [userId],
-  );
+  const reload = useCallback(async () => {
+    try {
+      const res = await fetch('/api/messages');
+      if (!res.ok) return;
+      const json = await res.json();
+      setThreads(Array.isArray(json.data) ? (json.data as ThreadRow[]) : []);
+    } catch {
+      setThreads([]);
+    }
+  }, []);
 
-  const threadParticipants = useMemo(() => {
-    const ids = new Set<string>();
-    userMessages.forEach((m) => {
-      ids.add(m.senderId === userId ? m.receiverId : m.senderId);
-    });
-    return Array.from(ids)
-      .map((id) => {
-        const messages = userMessages.filter((m) => m.senderId === id || m.receiverId === id);
-        const lastMsg = messages[0];
-        const unread = messages.filter((m) => !m.isRead && m.receiverId === userId).length;
-        const participant = MOCK_USERS.find((u) => u.id === id);
-        return { id, participant, lastMessage: lastMsg, messages, unread };
+  useEffect(() => {
+    let active = true;
+    fetch('/api/messages')
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (active) setThreads(Array.isArray(json.data) ? (json.data as ThreadRow[]) : []);
       })
-      .sort((a, b) => new Date(b.lastMessage.createdAt).getTime() - new Date(a.lastMessage.createdAt).getTime());
-  }, [userMessages, userId]);
+      .catch(() => {
+        if (active) setThreads([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const threadParticipants = useMemo(
+    () => threads.map((t) => ({ id: t.participant.id, fullName: t.participant.fullName, email: t.participant.email })),
+    [threads],
+  );
 
   const filteredThreads = useMemo(() => {
-    if (!search) return threadParticipants;
+    if (!search) return threads;
     const q = search.toLowerCase();
-    return threadParticipants.filter(
+    return threads.filter(
       (t) =>
-        t.participant?.fullName.toLowerCase().includes(q) ||
-        t.lastMessage.subject.toLowerCase().includes(q),
+        t.participant.fullName.toLowerCase().includes(q) ||
+        (t.messages[0]?.subject ?? '').toLowerCase().includes(q),
     );
-  }, [threadParticipants, search]);
+  }, [threads, search]);
 
   const activeThread = useMemo(
-    () => threadParticipants.find((t) => t.id === activeThreadId),
-    [threadParticipants, activeThreadId],
+    () => threads.find((t) => t.id === activeThreadId),
+    [threads, activeThreadId],
   );
 
-  const handleSendReply = useCallback(() => {
+  const handleSendReply = useCallback(async () => {
     if (!replyText.trim() || !activeThread) return;
-    MOCK_DIRECT_MESSAGES.push({
-      id: `msg_${Date.now()}`,
-      senderId: userId,
-      receiverId: activeThread.id,
-      subject: `Re: ${activeThread.lastMessage.subject}`,
-      content: replyText.trim(),
-      isRead: false,
-      createdAt: new Date().toISOString(),
-    });
-    setReplyText('');
-  }, [replyText, activeThread, userId]);
+    const last = activeThread.messages[0];
+    try {
+      const res = await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          receiverId: activeThread.participant.id,
+          subject: `Re: ${last?.subject ?? 'Message'}`,
+          content: replyText.trim(),
+        }),
+      });
+      if (res.ok) {
+        setReplyText('');
+        reload();
+      }
+    } catch {
+      return;
+    }
+  }, [replyText, activeThread, reload]);
 
   if (activeThread) {
     return (
@@ -100,7 +118,7 @@ export function MessagingInbox({ userId }: { userId: string }) {
         <div className="scrollbar-thin space-y-3 max-h-[60vh] overflow-y-auto pr-1">
           {activeThread.messages.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()).map((msg) => {
             const isMe = msg.senderId === userId;
-            const author = MOCK_USERS.find((u) => u.id === msg.senderId);
+            const author = msg.sender;
             return (
               <div key={msg.id} className={cn('flex gap-3', isMe && 'flex-row-reverse')}>
                 {author && <UserAvatar name={author.fullName} size="sm" />}
@@ -158,7 +176,12 @@ export function MessagingInbox({ userId }: { userId: string }) {
       {composerOpen && (
         <MessageComposer
           userId={userId}
+          participants={threadParticipants}
           onClose={() => setComposerOpen(false)}
+          onSent={() => {
+            setComposerOpen(false);
+            reload();
+          }}
         />
       )}
 
@@ -170,55 +193,107 @@ export function MessagingInbox({ userId }: { userId: string }) {
             <p className="text-xs text-text-muted">Start a conversation with an instructor.</p>
           </div>
         )}
-        {filteredThreads.map((thread) => (
-          <button
-            key={thread.id}
-            type="button"
-            onClick={() => setActiveThreadId(thread.id)}
-            className="card flex w-full items-center gap-3 p-4 text-left transition-colors hover:border-gold-500/30"
-          >
-            <UserAvatar name={thread.participant?.fullName ?? 'User'} size="md" />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-text-primary">{thread.participant?.fullName}</p>
-                <span className="text-[10px] text-text-muted">
-                  {new Date(thread.lastMessage.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                </span>
+        {filteredThreads.map((thread) => {
+          const lastMessage = thread.messages[0];
+          return (
+            <button
+              key={thread.id}
+              type="button"
+              onClick={() => setActiveThreadId(thread.id)}
+              className="card flex w-full items-center gap-3 p-4 text-left transition-colors hover:border-gold-500/30"
+            >
+              <UserAvatar name={thread.participant.fullName ?? 'User'} size="md" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-text-primary">{thread.participant.fullName}</p>
+                  {lastMessage && (
+                    <span className="text-[10px] text-text-muted">
+                      {new Date(lastMessage.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </span>
+                  )}
+                </div>
+                <p className="truncate text-xs font-medium text-text-primary">{lastMessage?.subject}</p>
+                <p className="mt-0.5 truncate text-xs text-text-muted">{lastMessage?.content.slice(0, 80)}</p>
               </div>
-              <p className="truncate text-xs font-medium text-text-primary">{thread.lastMessage.subject}</p>
-              <p className="mt-0.5 truncate text-xs text-text-muted">{thread.lastMessage.content.slice(0, 80)}</p>
-            </div>
-            {thread.unread > 0 && (
-              <div className="flex h-5 w-5 items-center justify-center rounded-full bg-gold-500 text-[10px] font-bold text-brown-900">
-                {thread.unread}
-              </div>
-            )}
-          </button>
-        ))}
+              {thread.unread > 0 && (
+                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-gold-500 text-[10px] font-bold text-brown-900">
+                  {thread.unread}
+                </div>
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-function MessageComposer({ userId, onClose }: { userId: string; onClose: () => void }) {
+function MessageComposer({
+  userId,
+  participants,
+  onClose,
+  onSent,
+}: {
+  userId: string;
+  participants: { id: string; fullName: string; email: string }[];
+  onClose: () => void;
+  onSent: () => void;
+}) {
   const [receiver, setReceiver] = useState('');
   const [subject, setSubject] = useState('');
   const [content, setContent] = useState('');
+  const [users, setUsers] = useState<User[]>([]);
 
-  const receivers = MOCK_USERS.filter((u) => u.id !== userId && (u.roles.includes('instructor') || u.roles.includes('parent')));
+  useEffect(() => {
+    let active = true;
+    fetch('/api/users')
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (active) setUsers(Array.isArray(json.data) ? (json.data as User[]) : []);
+      })
+      .catch(() => {
+        if (active) setUsers([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
-  const handleSend = () => {
-    if (!receiver || !subject.trim() || !content.trim()) return;
-    MOCK_DIRECT_MESSAGES.push({
-      id: `msg_${Date.now()}`,
-      senderId: userId,
-      receiverId: receiver,
-      subject: subject.trim(),
-      content: content.trim(),
-      isRead: false,
-      createdAt: new Date().toISOString(),
+  const receivers = useMemo(() => {
+    const map = new Map<string, User>();
+    users.forEach((u) => map.set(u.id, u));
+    participants.forEach((p) => {
+      if (!map.has(p.id)) {
+        map.set(p.id, {
+          id: p.id,
+          fullName: p.fullName,
+          name: p.fullName,
+          email: p.email,
+          roles: ['instructor'] as User['roles'],
+          activeRole: 'instructor',
+          locale: 'en-US',
+          timeZone: 'America/New_York',
+          currency: 'USD',
+        } as User);
+      }
     });
-    onClose();
+    return Array.from(map.values()).filter(
+      (u) => u.id !== userId && (u.roles.includes('instructor') || u.roles.includes('parent')),
+    );
+  }, [users, participants, userId]);
+
+  const handleSend = async () => {
+    if (!receiver || !subject.trim() || !content.trim()) return;
+    try {
+      const res = await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ receiverId: receiver, subject: subject.trim(), content: content.trim() }),
+      });
+      if (res.ok) onSent();
+    } catch {
+      return;
+    }
   };
 
   return (

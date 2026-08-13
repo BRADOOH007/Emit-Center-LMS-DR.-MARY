@@ -1,10 +1,9 @@
 import { Suspense } from 'react';
 import { BookOpen, Search } from 'lucide-react';
-import { MOCK_COURSES } from '@/lib/mock-data';
 import { getSession } from '@/lib/auth';
 import { CatalogFilters } from '@/components/catalog/CatalogFilters';
 import { CourseCard } from '@/components/catalog/CourseCard';
-import type { AgeLevel, CourseSubject, DeliveryFormat } from '@/types';
+import type { AgeLevel, Course, CourseSubject, DeliveryFormat } from '@/types';
 
 interface CatalogPageProps {
   searchParams: {
@@ -17,41 +16,40 @@ interface CatalogPageProps {
   };
 }
 
+async function fetchCourses(searchParams: CatalogPageProps['searchParams']): Promise<{ data: Course[]; total: number }> {
+  const params = new URLSearchParams();
+  normalizeArray(searchParams.format).forEach((f) => params.append('format', f));
+  normalizeArray(searchParams.ageLevel).forEach((a) => params.append('ageLevel', a));
+  normalizeArray(searchParams.subject).forEach((s) => params.append('subject', s));
+  if (searchParams.timezone) params.set('timezone', searchParams.timezone);
+  if (searchParams.search) params.set('search', searchParams.search);
+  params.set('page', String(Math.max(1, parseInt(searchParams.page ?? '1', 10))));
+  params.set('pageSize', '9');
+
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+  const res = await fetch(`${baseUrl}/api/courses?${params.toString()}`, { cache: 'no-store' });
+  if (!res.ok) {
+    return { data: [], total: 0 };
+  }
+  const json = (await res.json()) as { success: boolean; data: { data: Course[]; total: number } };
+  return json.data ?? { data: [], total: 0 };
+}
+
 export default async function CatalogPage({ searchParams }: CatalogPageProps) {
   const session = await getSession();
   const userCurrency = session?.user.currency ?? 'USD';
+  const page = Math.max(1, parseInt(searchParams.page ?? '1', 10));
 
-  const format = normalizeArray(searchParams.format) as DeliveryFormat[];
-  const ageLevel = normalizeArray(searchParams.ageLevel) as AgeLevel[];
-  const subject = normalizeArray(searchParams.subject) as CourseSubject[];
+  const { data: courses, total } = await fetchCourses(searchParams);
+
+  const format = normalizeArray(searchParams.format);
+  const ageLevel = normalizeArray(searchParams.ageLevel);
+  const subject = normalizeArray(searchParams.subject);
   const timezone = searchParams.timezone;
   const search = searchParams.search?.toLowerCase();
-  const page = Math.max(1, parseInt(searchParams.page ?? '1', 10));
+
   const pageSize = 9;
-
-  let filtered = MOCK_COURSES.filter((c) => c.isPublished);
-
-  if (format.length > 0) filtered = filtered.filter((c) => format.includes(c.format));
-  if (ageLevel.length > 0) filtered = filtered.filter((c) => ageLevel.includes(c.ageLevel));
-  if (subject.length > 0) filtered = filtered.filter((c) => subject.includes(c.subject));
-  if (search) {
-    filtered = filtered.filter(
-      (c) =>
-        c.title.toLowerCase().includes(search) ||
-        c.description.toLowerCase().includes(search) ||
-        c.subject.includes(search),
-    );
-  }
-  if (timezone) {
-    filtered = filtered.filter((c) =>
-      c.schedule.timeSlots.some((slot) => slot.timezone === timezone),
-    );
-  }
-
-  const total = filtered.length;
-  const totalPages = Math.ceil(total / pageSize);
-  const start = (page - 1) * pageSize;
-  const paged = filtered.slice(start, start + pageSize);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const hasActiveFilters = format.length > 0 || ageLevel.length > 0 || subject.length > 0 || !!search || !!timezone;
 
   return (
@@ -75,10 +73,10 @@ export default async function CatalogPage({ searchParams }: CatalogPageProps) {
             <CatalogFilters className="lg:hidden" />
           </Suspense>
 
-          {paged.length > 0 ? (
+          {courses.length > 0 ? (
             <>
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {paged.map((course) => (
+                {courses.map((course) => (
                   <CourseCard key={course.id} course={course} userCurrency={userCurrency} />
                 ))}
               </div>
@@ -118,12 +116,9 @@ function PaginationLinks({
 }) {
   const buildHref = (targetPage: number) => {
     const params = new URLSearchParams();
-    const format = normalizeArray(searchParams.format);
-    const ageLevel = normalizeArray(searchParams.ageLevel);
-    const subject = normalizeArray(searchParams.subject);
-    format.forEach((f) => params.append('format', f));
-    ageLevel.forEach((a) => params.append('ageLevel', a));
-    subject.forEach((s) => params.append('subject', s));
+    normalizeArray(searchParams.format).forEach((f) => params.append('format', f));
+    normalizeArray(searchParams.ageLevel).forEach((a) => params.append('ageLevel', a));
+    normalizeArray(searchParams.subject).forEach((s) => params.append('subject', s));
     if (searchParams.timezone) params.set('timezone', searchParams.timezone);
     if (searchParams.search) params.set('search', searchParams.search);
     params.set('page', String(targetPage));

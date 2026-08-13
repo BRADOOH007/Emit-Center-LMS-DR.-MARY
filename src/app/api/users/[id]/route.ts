@@ -37,9 +37,25 @@ function mapUser(row: {
 }
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  const me = await getSessionUser();
+  if (!me) return forbid('Sign in to view user details');
+
+  const isSelf = me.id === params.id;
+  const isAdmin = me.roles.includes('administrator') || me.roles.includes('super_admin');
+  if (!isSelf && !isAdmin) return forbid('You can only view your own profile');
+
   const user = await prisma.user.findUnique({ where: { id: params.id } });
   if (!user) return notFound('User not found');
-  return ok(mapUser(user));
+
+  const mapped = mapUser(user);
+
+  // Redact contact details unless viewing yourself or acting as an administrator.
+  if (!isSelf && !isAdmin) {
+    delete (mapped as Partial<typeof mapped>).phone;
+    delete (mapped as Partial<typeof mapped>).countryCode;
+  }
+
+  return ok(mapped);
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
@@ -53,6 +69,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     const body = await parseBody<{
       fullName?: string;
       phone?: string;
+      avatarUrl?: string;
       countryCode?: string;
       locale?: string;
       timeZone?: string;
@@ -64,6 +81,14 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       data: {
         ...(body.fullName !== undefined ? { fullName: sanitizeInput(body.fullName) } : {}),
         ...(body.phone !== undefined ? { phone: sanitizeInput(body.phone) || null } : {}),
+        ...(body.avatarUrl !== undefined
+          ? {
+              avatarUrl:
+                typeof body.avatarUrl === 'string' && body.avatarUrl.trim()
+                  ? sanitizeInput(body.avatarUrl).slice(0, 2_000_000)
+                  : null,
+            }
+          : {}),
         ...(body.countryCode !== undefined ? { countryCode: sanitizeInput(body.countryCode) } : {}),
         ...(body.timeZone !== undefined ? { timezone: body.timeZone as SupportedTimeZone } : {}),
         ...(body.locale !== undefined ? { locale: body.locale as SupportedLocale } : {}),

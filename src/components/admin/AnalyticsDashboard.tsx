@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   BookOpen,
@@ -11,23 +11,96 @@ import {
   UserCheck,
   BarChart3,
 } from 'lucide-react';
-import { MOCK_ANALYTICS } from '@/lib/mock-data';
 import { Badge } from '@/components/ui/Badge';
 import { cn } from '@/lib/utils';
 
+interface AtRiskStudent {
+  id: string;
+  fullName: string;
+  email: string;
+}
+
+interface AnalyticsMetrics {
+  activeEnrollments: number;
+  totalStudents: number;
+  onsiteAttendanceRate: number;
+  onlineAttendanceRate: number;
+  overallAttendanceRate: number;
+  courseCompletionRate: number;
+  atRiskCount: number;
+  totalCourses: number;
+  publishedCourses: number;
+  totalCertificates: number;
+  pendingGradable: number;
+  totalPayments: number;
+  revenueAmount: number;
+  unreadMessages: number;
+  atRiskStudents: AtRiskStudent[];
+  enrollmentTrend: { date: string; count: number }[];
+  attendanceTrend: { date: string; onsitePct: number; onlinePct: number }[];
+  gradeDistribution: { grade: string; count: number }[];
+}
+
+const EMPTY_METRICS: AnalyticsMetrics = {
+  activeEnrollments: 0,
+  totalStudents: 0,
+  onsiteAttendanceRate: 0,
+  onlineAttendanceRate: 0,
+  overallAttendanceRate: 0,
+  courseCompletionRate: 0,
+  atRiskCount: 0,
+  totalCourses: 0,
+  publishedCourses: 0,
+  totalCertificates: 0,
+  pendingGradable: 0,
+  totalPayments: 0,
+  revenueAmount: 0,
+  unreadMessages: 0,
+  atRiskStudents: [],
+  enrollmentTrend: [],
+  attendanceTrend: [],
+  gradeDistribution: [],
+};
+
 export function AnalyticsDashboard() {
-  const metrics = MOCK_ANALYTICS;
+  const [metrics, setMetrics] = useState<AnalyticsMetrics>(EMPTY_METRICS);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/analytics')
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: null })))
+      .then((json) => {
+        if (active && json?.data?.metrics) setMetrics(json.data.metrics);
+      })
+      .catch(() => {
+        if (active) setMetrics(EMPTY_METRICS);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const attendanceTrend = useMemo(() => {
+    if (metrics.attendanceTrend.length > 0) return metrics.attendanceTrend;
+    return [
+      {
+        date: new Date().toISOString().slice(0, 10),
+        onsitePct: metrics.onsiteAttendanceRate,
+        onlinePct: metrics.onlineAttendanceRate,
+      },
+    ];
+  }, [metrics]);
 
   const maxEnrollment = useMemo(
-    () => Math.max(...metrics.enrollmentTrend.map((d) => d.count)),
+    () => (metrics.enrollmentTrend.length ? Math.max(...metrics.enrollmentTrend.map((d) => d.count)) : 1),
     [metrics],
   );
   const maxTrend = useMemo(
-    () => Math.max(...metrics.attendanceTrend.map((d) => Math.max(d.onsitePct, d.onlinePct))),
-    [metrics],
+    () => (attendanceTrend.length ? Math.max(...attendanceTrend.map((d) => Math.max(d.onsitePct, d.onlinePct))) : 1),
+    [attendanceTrend],
   );
   const maxGrade = useMemo(
-    () => Math.max(...metrics.gradeDistribution.map((d) => d.count)),
+    () => (metrics.gradeDistribution.length ? Math.max(...metrics.gradeDistribution.map((d) => d.count)) : 1),
     [metrics],
   );
 
@@ -106,7 +179,7 @@ export function AnalyticsDashboard() {
             Attendance Rates
           </h3>
           <div className="space-y-2">
-            {metrics.attendanceTrend.map((point) => (
+            {attendanceTrend.map((point) => (
               <div key={point.date} className="flex items-center gap-3">
                 <span className="w-12 text-xs text-text-muted">{point.date.slice(8)}</span>
                 <div className="flex flex-1 gap-1.5">
@@ -163,23 +236,12 @@ export function AnalyticsDashboard() {
           </h3>
           <div className="space-y-2">
             {metrics.atRiskStudents.map((student) => (
-              <div key={student.userId} className="flex items-center justify-between rounded-lg border border-line px-3 py-2">
-                <div>
-                  <p className="text-sm font-medium text-text-primary">{student.name}</p>
-                  <p className="text-xs text-text-muted">{student.courseName}</p>
+              <div key={student.id} className="flex items-center justify-between rounded-lg border border-line px-3 py-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-text-primary">{student.fullName}</p>
+                  <p className="truncate text-xs text-text-muted">{student.email}</p>
                 </div>
-                <div className="flex items-center gap-3 text-xs">
-                  <Badge
-                    variant={
-                      student.riskLevel === 'high' ? 'danger' :
-                      student.riskLevel === 'medium' ? 'gold' : 'neutral'
-                    }
-                  >
-                    {student.riskLevel}
-                  </Badge>
-                  <span className="text-text-muted">{student.gradePct}%</span>
-                  <span className="text-text-muted">{student.attendancePct}% att.</span>
-                </div>
+                <Badge variant="danger">at risk</Badge>
               </div>
             ))}
           </div>

@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { MoreHorizontal, Search, ShieldCheck, Users } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { PageIntro, DataColumn, DataTable, SectionPanel, StatCard } from '@/components/dashboard/primitives';
 import { UserAvatar } from '@/components/ui/UserAvatar';
-import type { Role, User } from '@/types';
+import type { RelationshipType, Role, User } from '@/types';
 
 const ROLE_TONES: Record<Role, 'gold' | 'brown' | 'neutral' | 'success'> = {
   super_admin: 'gold',
@@ -24,43 +24,134 @@ const ROLE_LABELS: Record<Role, string> = {
   parent: 'Parent',
 };
 
+const RELATIONSHIP_LABELS: Record<RelationshipType, string> = {
+  guardian: 'Guardian',
+  mother: 'Mother',
+  father: 'Father',
+  sponsor: 'Sponsor',
+};
+
+interface AdminCourseOption {
+  id: string;
+  title: string;
+}
+
 export function AdminUsers({ scope }: { scope?: Role }) {
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<Role | 'all'>(scope ?? 'all');
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [inviteSent, setInviteSent] = useState(false);
+  const [inviteMsg, setInviteMsg] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
+  const [sending, setSending] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
-  const [invite, setInvite] = useState({ name: '', email: '', role: 'student' as Role });
-
-  const sendInvite = () => {
-    if (!invite.name.trim() || !invite.email.trim()) return;
-    setInviteOpen(false);
-    setInviteSent(true);
-    window.setTimeout(() => setInviteSent(false), 2000);
-    setInvite({ name: '', email: '', role: 'student' });
-  };
+  const [invite, setInvite] = useState<{
+    name: string;
+    email: string;
+    role: Role;
+    parentEmail: string;
+    parentFullName: string;
+    relationshipType: RelationshipType;
+    courseIds: string[];
+  }>({
+    name: '',
+    email: '',
+    role: scope ?? 'student',
+    parentEmail: '',
+    parentFullName: '',
+    relationshipType: 'guardian',
+    courseIds: [],
+  });
 
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+  const [courses, setCourses] = useState<AdminCourseOption[]>([]);
 
-  useEffect(() => {
-    let active = true;
+  const loadUsers = useCallback(() => {
+    setLoading(true);
     fetch('/api/users')
       .then((res) => (res.ok ? res.json() : Promise.reject()))
       .then((data) => {
-        if (!active) return;
         setUsers(Array.isArray(data.data) ? data.data : []);
       })
       .catch(() => {
-        if (active) setUsers([]);
+        setUsers([]);
       })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
+      .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    loadUsers();
+  }, [loadUsers]);
+
+  useEffect(() => {
+    if (!inviteOpen || invite.role !== 'instructor') return;
+    fetch('/api/admin/courses')
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => setCourses(Array.isArray(json.data) ? json.data.map((c: { id: string; title: string }) => ({ id: c.id, title: c.title })) : []))
+      .catch(() => setCourses([]));
+  }, [inviteOpen, invite.role]);
+
+  const sendInvite = async () => {
+    if (!invite.name.trim() || !invite.email.trim()) {
+      setInviteMsg({ tone: 'error', text: 'Full name and email are required.' });
+      return;
+    }
+    setSending(true);
+    setInviteMsg(null);
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fullName: invite.name.trim(),
+          email: invite.email.trim(),
+          role: invite.role,
+          ...(invite.role === 'instructor' && invite.courseIds.length ? { courseIds: invite.courseIds } : {}),
+          ...(invite.role === 'student'
+            ? {
+                parentEmail: invite.parentEmail.trim() || undefined,
+                parentFullName: invite.parentFullName.trim() || undefined,
+                relationshipType: invite.relationshipType,
+              }
+            : {}),
+        }),
+      });
+      const json = await res.json().catch(() => ({ success: false, error: 'Server error' }));
+      if (!res.ok || !json.success) {
+        setInviteMsg({ tone: 'error', text: json.error || 'Unable to create account.' });
+        return;
+      }
+      setInviteOpen(false);
+      setInvite({
+        name: '',
+        email: '',
+        role: scope ?? 'student',
+        parentEmail: '',
+        parentFullName: '',
+        relationshipType: 'guardian',
+        courseIds: [],
+      });
+      loadUsers();
+      const temp = json.data?.tempPassword
+        ? ` ${invite.name.trim()} can sign in with the temporary password ${json.data.tempPassword}.`
+        : '';
+      setInviteMsg({
+        tone: 'success',
+        text: `${invite.role === 'student' ? 'Student' : ROLE_LABELS[invite.role]} account created for ${invite.email.trim()}.${temp}`,
+      });
+      window.setTimeout(() => setInviteMsg(null), 12000);
+    } catch {
+      setInviteMsg({ tone: 'error', text: 'Unable to create account. Please try again.' });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const toggleCourse = (id: string) => {
+    setInvite((prev) => ({
+      ...prev,
+      courseIds: prev.courseIds.includes(id) ? prev.courseIds.filter((c) => c !== id) : [...prev.courseIds, id],
+    }));
+  };
 
   const rows = useMemo(() => users.map((u) => ({ ...u, activeRoleLabel: ROLE_LABELS[u.activeRole] })), [users]);
 
@@ -143,6 +234,7 @@ export function AdminUsers({ scope }: { scope?: Role }) {
 
   const isScoped = scope != null;
   const scopedLabel = scope ? ROLE_LABELS[scope] : '';
+  const inviteRoles: Role[] = scope ? [scope] : ['student', 'parent', 'instructor', 'administrator'];
 
   return (
     <div className="space-y-6">
@@ -151,24 +243,30 @@ export function AdminUsers({ scope }: { scope?: Role }) {
         title={isScoped ? `${scopedLabel}s` : 'User Management'}
         subtitle={
           isScoped
-            ? `${rows.filter((u) => u.activeRole === scope).length} ${scopedLabel} accounts — invite, manage and monitor access`
-            : `${rows.length} accounts across every role — invite, manage and monitor platform access`
+            ? `${rows.filter((u) => u.activeRole === scope).length} ${scopedLabel} accounts — create, manage and monitor access`
+            : `${rows.length} accounts across every role — create, manage and monitor platform access`
         }
         actions={
           <Button onClick={() => setInviteOpen(true)}>
-            <Users aria-hidden="true" className="h-4 w-4" /> Invite {isScoped ? scopedLabel : 'User'}
+            <Users aria-hidden="true" className="h-4 w-4" /> Create {isScoped ? scopedLabel : 'User'}
           </Button>
         }
       />
 
-      {inviteSent && (
-        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300">
-          Invitation sent to {invite.email || 'the user'}.
+      {inviteMsg && (
+        <div
+          className={`rounded-lg border px-4 py-3 text-sm ${
+            inviteMsg.tone === 'success'
+              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+              : 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300'
+          }`}
+        >
+          {inviteMsg.text}
         </div>
       )}
 
       {inviteOpen && (
-        <SectionPanel title={`Invite ${isScoped ? scopedLabel : 'User'}`} icon={Users}>
+        <SectionPanel title={`Create ${isScoped ? scopedLabel : 'User'} Account`} icon={Users}>
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className="label" htmlFor="invite-name">Full name</label>
@@ -197,19 +295,94 @@ export function AdminUsers({ scope }: { scope?: Role }) {
                 id="invite-role"
                 className="input"
                 value={invite.role}
-                onChange={(e) => setInvite({ ...invite, role: e.target.value as Role })}
+                onChange={(e) =>
+                  setInvite({ ...invite, role: e.target.value as Role, relationshipType: 'guardian', courseIds: [] })
+                }
               >
-                <option value="student">Student</option>
-                <option value="parent">Parent / Guardian</option>
-                <option value="instructor">Instructor</option>
-                <option value="administrator">Administrator</option>
+                {inviteRoles.map((role) => (
+                  <option key={role} value={role}>{ROLE_LABELS[role]}</option>
+                ))}
               </select>
             </div>
           </div>
+
+          {invite.role === 'student' && (
+            <div className="mt-4 rounded-lg border border-line bg-line-soft/40 p-4">
+              <p className="mb-3 text-sm font-medium text-text-primary">Parent / Guardian (optional)</p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="label" htmlFor="invite-parent-name">Parent / guardian name</label>
+                  <input
+                    id="invite-parent-name"
+                    className="input"
+                    value={invite.parentFullName}
+                    onChange={(e) => setInvite({ ...invite, parentFullName: e.target.value })}
+                    placeholder="e.g. Mary Doe"
+                  />
+                </div>
+                <div>
+                  <label className="label" htmlFor="invite-parent-email">Parent / guardian email</label>
+                  <input
+                    id="invite-parent-email"
+                    type="email"
+                    className="input"
+                    value={invite.parentEmail}
+                    onChange={(e) => setInvite({ ...invite, parentEmail: e.target.value })}
+                    placeholder="parent@example.com"
+                  />
+                </div>
+                <div>
+                  <label className="label" htmlFor="invite-relationship">Relationship</label>
+                  <select
+                    id="invite-relationship"
+                    className="input"
+                    value={invite.relationshipType}
+                    onChange={(e) => setInvite({ ...invite, relationshipType: e.target.value as RelationshipType })}
+                  >
+                    {(Object.keys(RELATIONSHIP_LABELS) as RelationshipType[]).map((rt) => (
+                      <option key={rt} value={rt}>{RELATIONSHIP_LABELS[rt]}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <p className="mt-2 text-xs text-text-muted">
+                Providing an email creates a parent account (if none exists) and links it to this student. Parents sign in
+                with the temporary password <span className="font-mono">ChangeMe123!</span>.
+              </p>
+            </div>
+          )}
+
+          {invite.role === 'instructor' && (
+            <div className="mt-4 rounded-lg border border-line bg-line-soft/40 p-4">
+              <p className="mb-3 text-sm font-medium text-text-primary">Assign courses (optional)</p>
+              <p className="mb-2 text-xs text-text-muted">Select the courses this instructor will teach.</p>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {courses.length === 0 && (
+                  <p className="text-sm text-text-muted">No courses created yet.</p>
+                )}
+                {courses.map((course) => (
+                  <label key={course.id} className="flex cursor-pointer items-center gap-2 rounded-md border border-line px-3 py-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-line"
+                      checked={invite.courseIds.includes(course.id)}
+                      onChange={() => toggleCourse(course.id)}
+                    />
+                    <span className="truncate text-text-primary">{course.title}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="mt-4 flex items-center gap-2">
-            <Button onClick={sendInvite}>Send Invite</Button>
+            <Button onClick={sendInvite} disabled={sending}>{sending ? 'Creating…' : 'Create Account'}</Button>
             <Button variant="outline" onClick={() => setInviteOpen(false)}>Cancel</Button>
           </div>
+          <p className="mt-3 text-xs text-text-muted">
+            New accounts are verified automatically and sign in with the temporary password{' '}
+            <span className="font-mono">ChangeMe123!</span>.
+          </p>
         </SectionPanel>
       )}
 

@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, Globe, LogOut, Moon, Sun, UserRound, Clock, CircleDollarSign } from 'lucide-react';
-import type { Role, User } from '@/types';
+import type { Role, User, SupportedLocale, SupportedTimeZone, SupportedCurrency } from '@/types';
 import { ROLE_META } from '@/config/roles';
 import { CURRENCIES, LOCALE_OPTIONS, TIME_ZONES } from '@/lib/i18n/locale';
 import { cn } from '@/lib/utils';
@@ -21,6 +22,7 @@ const ROLE_BADGE_VARIANT: Record<Role, 'gold' | 'brown' | 'neutral' | 'success'>
 
 export function ProfileDropdown({ user, onSignOut }: { user: User; onSignOut?: () => void }) {
   const [open, setOpen] = useState(false);
+  const [switching, setSwitching] = useState<Role | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const { theme, toggleTheme } = useTheme();
@@ -32,6 +34,7 @@ export function ProfileDropdown({ user, onSignOut }: { user: User; onSignOut?: (
     setTimeZone,
     setCurrency,
   } = useLocale();
+  const router = useRouter();
 
   useEffect(() => {
     if (!open) return;
@@ -60,6 +63,36 @@ export function ProfileDropdown({ user, onSignOut }: { user: User; onSignOut?: (
   const handleSignOut = () => {
     setOpen(false);
     onSignOut?.();
+  };
+
+  const handleSwitchRole = async (role: Role) => {
+    if (role === user.activeRole || switching) return;
+    setSwitching(role);
+    try {
+      const res = await fetch('/api/auth/role', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) return;
+      setOpen(false);
+      router.push(json.data.home);
+    } finally {
+      setSwitching(null);
+    }
+  };
+
+  const persistPreference = (patch: {
+    locale?: SupportedLocale;
+    timeZone?: SupportedTimeZone;
+    currency?: SupportedCurrency;
+  }) => {
+    fetch(`/api/users/${user.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    }).catch(() => undefined);
   };
 
   const activeRoleMeta = ROLE_META[user.activeRole];
@@ -125,6 +158,8 @@ export function ProfileDropdown({ user, onSignOut }: { user: User; onSignOut?: (
                       type="button"
                       role="menuitemradio"
                       aria-checked={role === user.activeRole}
+                      disabled={switching !== null}
+                      onClick={() => handleSwitchRole(role)}
                       className={cn(
                         'flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-line-soft',
                         role === user.activeRole
@@ -134,6 +169,9 @@ export function ProfileDropdown({ user, onSignOut }: { user: User; onSignOut?: (
                     >
                       <UserRound aria-hidden="true" className="h-4 w-4" />
                       <span className="flex-1">{ROLE_META[role].label}</span>
+                      {switching === role && (
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-gold-600 border-t-transparent" />
+                      )}
                       {role === user.activeRole && <Check aria-hidden="true" className="h-4 w-4" />}
                     </button>
                   </li>
@@ -154,7 +192,11 @@ export function ProfileDropdown({ user, onSignOut }: { user: User; onSignOut?: (
                 </span>
                 <select
                   value={locale}
-                  onChange={(event) => setLocale(event.target.value as User['locale'])}
+                  onChange={(event) => {
+                    const next = event.target.value as User['locale'];
+                    setLocale(next);
+                    persistPreference({ locale: next });
+                  }}
                   className="input !py-1.5"
                 >
                   {LOCALE_OPTIONS.map((option) => (
@@ -170,7 +212,11 @@ export function ProfileDropdown({ user, onSignOut }: { user: User; onSignOut?: (
                 </span>
                 <select
                   value={timeZone}
-                  onChange={(event) => setTimeZone(event.target.value as User['timeZone'])}
+                  onChange={(event) => {
+                    const next = event.target.value as User['timeZone'];
+                    setTimeZone(next);
+                    persistPreference({ timeZone: next });
+                  }}
                   className="input !py-1.5"
                 >
                   {TIME_ZONES.map((tz) => (
@@ -186,7 +232,11 @@ export function ProfileDropdown({ user, onSignOut }: { user: User; onSignOut?: (
                 </span>
                 <select
                   value={currency}
-                  onChange={(event) => setCurrency(event.target.value as User['currency'])}
+                  onChange={(event) => {
+                    const next = event.target.value as User['currency'];
+                    setCurrency(next);
+                    persistPreference({ currency: next });
+                  }}
                   className="input !py-1.5"
                 >
                   {CURRENCIES.map((c) => (
@@ -214,7 +264,7 @@ export function ProfileDropdown({ user, onSignOut }: { user: User; onSignOut?: (
               {theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
             </button>
             <Link
-              href="/dashboard"
+              href="/profile"
               role="menuitem"
               onClick={() => setOpen(false)}
               className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-sm font-medium text-text-muted transition-colors hover:bg-line-soft hover:text-text-primary"

@@ -1,29 +1,62 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CalendarDays, MapPin, Monitor, Search } from 'lucide-react';
-import { Badge } from '@/components/ui/Badge';
 import { PageIntro, DataColumn, DataTable, SectionPanel, StatCard } from '@/components/dashboard/primitives';
-import { getStudentCourseIds } from '@/lib/dashboard-data';
-import { MOCK_ROOMS, MOCK_SESSIONS, MOCK_USERS } from '@/lib/mock-data';
 import { StatusBadge } from '@/components/dashboard/status';
 import { useLocale } from '@/components/providers/AppProviders';
-import type { ClassSession } from '@/types';
+
+interface SessionRow {
+  id: string;
+  courseId: string;
+  title: string;
+  format: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  sessionType: string;
+  status: string;
+  meetingLink?: string;
+  instructor?: { id: string; fullName: string } | null;
+}
+
+interface EnrollmentItem {
+  userId: string;
+  courseId: string;
+  status: string;
+}
 
 export function StudentClasses({ studentId }: { studentId: string }) {
   const { formatDate } = useLocale();
   const [search, setSearch] = useState('');
-  const courseIds = useMemo(() => getStudentCourseIds(studentId), [studentId]);
+  const [sessions, setSessions] = useState<SessionRow[]>([]);
 
-  const sessions = useMemo(() => MOCK_SESSIONS.map((s) => ({
-    ...s,
-    instructor: MOCK_USERS.find((u) => u.id === s.instructorId),
-    room: s.roomId ? MOCK_ROOMS.find((r) => r.id === s.roomId) : undefined,
-  })).filter((s) => courseIds.includes(s.courseId)), [courseIds]);
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      fetch('/api/enrollments').then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] }))),
+      fetch('/api/sessions').then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] }))),
+    ])
+      .then(([enrollmentsJson, sessionsJson]) => {
+        if (!active) return;
+        const enrollments = (Array.isArray(enrollmentsJson.data) ? enrollmentsJson.data : []) as EnrollmentItem[];
+        const courseIds = enrollments
+          .filter((e) => e.userId === studentId && e.status === 'active')
+          .map((e) => e.courseId);
+        const all = (Array.isArray(sessionsJson.data) ? sessionsJson.data : []) as SessionRow[];
+        setSessions(all.filter((s) => courseIds.includes(s.courseId)));
+      })
+      .catch(() => {
+        if (active) setSessions([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [studentId]);
 
   const filtered = sessions.filter((s) => s.title.toLowerCase().includes(search.toLowerCase()));
 
-  const columns: DataColumn<ClassSession & { room?: (typeof MOCK_ROOMS)[number] }>[] = [
+  const columns: DataColumn<SessionRow>[] = [
     {
       key: 'session',
       header: 'Session',
@@ -45,9 +78,9 @@ export function StudentClasses({ studentId }: { studentId: string }) {
       render: (session) => (
         <span className="flex items-center gap-1.5 text-sm text-text-primary">
           {session.format === 'onsite' ? (
-            <><MapPin className="h-3.5 w-3.5 text-brown-500" />{session.room?.name ?? 'Onsite'}</>
+            <><MapPin className="h-3.5 w-3.5 text-brown-500" />Onsite</>
           ) : (
-            <><Monitor className="h-3.5 w-3.5 text-gold-600" />{session.meetingPlatform ?? 'Online'}</>
+            <><Monitor className="h-3.5 w-3.5 text-gold-600" />Online</>
           )}
         </span>
       ),
@@ -55,7 +88,7 @@ export function StudentClasses({ studentId }: { studentId: string }) {
     {
       key: 'instructor',
       header: 'Instructor',
-      render: (session) => <span className="text-sm text-text-primary">{session.instructor?.name ?? '—'}</span>,
+      render: (session) => <span className="text-sm text-text-primary">{session.instructor?.fullName ?? '—'}</span>,
     },
     {
       key: 'status',

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -13,20 +13,103 @@ import {
 } from 'lucide-react';
 import { PageIntro, SectionPanel, StatCard } from '@/components/dashboard/primitives';
 import { StatusBadge } from '@/components/dashboard/status';
-import { getEnrollments, getPayments } from '@/lib/dashboard-data';
-import { MOCK_ANALYTICS, MOCK_AUDIT_LOGS, MOCK_USERS } from '@/lib/mock-data';
 import { useLocale } from '@/components/providers/AppProviders';
+import type { Enrollment, Payment } from '@/types/dashboard';
 import type { User } from '@/types';
+
+interface AnalyticsMetrics {
+  activeEnrollments: number;
+  totalStudents: number;
+  onsiteAttendanceRate: number;
+  onlineAttendanceRate: number;
+  overallAttendanceRate: number;
+  courseCompletionRate: number;
+  atRiskCount: number;
+}
+
+interface AuditEntry {
+  id: string;
+  action: string;
+  createdAt: string;
+  resourceType: string;
+  resourceId: string | null;
+  userId: string;
+}
+
+interface RawEnrollment {
+  id: string;
+  userId: string;
+  courseId: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  course?: {
+    id: string;
+    title: string;
+  } | null;
+}
+
+const EMPTY_METRICS: AnalyticsMetrics = {
+  activeEnrollments: 0,
+  totalStudents: 0,
+  onsiteAttendanceRate: 0,
+  onlineAttendanceRate: 0,
+  overallAttendanceRate: 0,
+  courseCompletionRate: 0,
+  atRiskCount: 0,
+};
 
 export function AdminOverview() {
   const { formatCurrency, formatDateTime } = useLocale();
-  const enrollments = useMemo(() => getEnrollments(), []);
-  const payments = useMemo(() => getPayments(), []);
+  const [metrics, setMetrics] = useState<AnalyticsMetrics>(EMPTY_METRICS);
+  const [recentAudits, setRecentAudits] = useState<AuditEntry[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [rawEnrollments, setRawEnrollments] = useState<RawEnrollment[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    const fetchJson = (url: string) =>
+      fetch(url).then((res) => (res.ok ? res.json() : Promise.resolve({ data: null })));
+    Promise.all([
+      fetchJson('/api/analytics'),
+      fetchJson('/api/payments'),
+      fetchJson('/api/enrollments'),
+      fetchJson('/api/users'),
+    ])
+      .then(([analytics, paymentsJson, enrollmentsJson, usersJson]) => {
+        if (!active) return;
+        if (analytics?.data?.metrics) setMetrics(analytics.data.metrics);
+        setRecentAudits(Array.isArray(analytics?.data?.recentAudits) ? analytics.data.recentAudits : []);
+        setPayments(Array.isArray(paymentsJson?.data) ? paymentsJson.data : []);
+        setRawEnrollments(Array.isArray(enrollmentsJson?.data) ? enrollmentsJson.data : []);
+        setUsers(Array.isArray(usersJson?.data) ? usersJson.data : []);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const enrollments = useMemo<Enrollment[]>(
+    () =>
+      rawEnrollments.map((e) => ({
+        id: e.id,
+        userId: e.userId,
+        courseId: e.courseId,
+        status: e.status as Enrollment['status'],
+        createdAt: e.createdAt,
+        updatedAt: e.updatedAt,
+        course: (e.course ?? undefined) as Enrollment['course'],
+        user: users.find((u) => u.id === e.userId),
+      })),
+    [rawEnrollments, users],
+  );
+
   const revenue = useMemo(
     () => payments.filter((p) => p.status === 'succeeded').reduce((sum, p) => sum + p.amount, 0),
     [payments],
   );
-  const users = useMemo(() => MOCK_USERS as User[], []);
   const completed = enrollments.filter((e) => e.status === 'completed').length;
   const pending = enrollments.filter((e) => e.status === 'pending').length;
   const recentEnrollments = enrollments.slice(0, 6);
@@ -43,28 +126,28 @@ export function AdminOverview() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Total Students"
-          value={MOCK_ANALYTICS.totalStudents.toLocaleString()}
+          value={metrics.totalStudents.toLocaleString()}
           hint={`${activeStudents} student accounts`}
           icon={Users}
           tone="blue"
         />
         <StatCard
           label="Active Enrollments"
-          value={MOCK_ANALYTICS.activeEnrollments}
+          value={metrics.activeEnrollments}
           hint={`${completed} completed · ${pending} pending`}
           icon={BookOpen}
           tone="emerald"
         />
         <StatCard
           label="Course Completion"
-          value={`${MOCK_ANALYTICS.courseCompletionRate}%`}
-          hint={`${MOCK_ANALYTICS.atRiskCount} students at risk`}
+          value={`${metrics.courseCompletionRate}%`}
+          hint={`${metrics.atRiskCount} students at risk`}
           icon={GraduationCap}
           tone="gold"
         />
         <StatCard
           label="Collected Revenue"
-          value={formatCurrency(revenue)}
+          value={formatCurrency(revenue / 100)}
           hint={`Across ${payments.filter((p) => p.status === 'succeeded').length} successful payments`}
           icon={CircleDollarSign}
           tone="brown"
@@ -76,19 +159,19 @@ export function AdminOverview() {
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="panel flex flex-col items-center justify-center gap-1 p-4">
               <p className="text-xs uppercase tracking-wide text-text-muted">Overall</p>
-              <p className="font-display text-3xl font-bold text-text-primary">{MOCK_ANALYTICS.overallAttendanceRate}%</p>
+              <p className="font-display text-3xl font-bold text-text-primary">{metrics.overallAttendanceRate}%</p>
               <p className="text-xs text-emerald-600">Healthy</p>
             </div>
             <div className="panel flex flex-col items-center justify-center gap-1 p-4">
               <p className="text-xs uppercase tracking-wide text-text-muted">Onsite</p>
-              <p className="font-display text-3xl font-bold text-text-primary">{MOCK_ANALYTICS.onsiteAttendanceRate}%</p>
+              <p className="font-display text-3xl font-bold text-text-primary">{metrics.onsiteAttendanceRate}%</p>
               <p className="flex items-center gap-1 text-xs text-text-muted">
                 <TrendingUp className="h-3 w-3 text-emerald-600" /> tracked per session
               </p>
             </div>
             <div className="panel flex flex-col items-center justify-center gap-1 p-4">
               <p className="text-xs uppercase tracking-wide text-text-muted">Online</p>
-              <p className="font-display text-3xl font-bold text-text-primary">{MOCK_ANALYTICS.onlineAttendanceRate}%</p>
+              <p className="font-display text-3xl font-bold text-text-primary">{metrics.onlineAttendanceRate}%</p>
               <p className="flex items-center gap-1 text-xs text-text-muted">
                 <TrendingUp className="h-3 w-3 text-emerald-600" /> tracked per session
               </p>
@@ -119,7 +202,7 @@ export function AdminOverview() {
 
         <SectionPanel title="Recent Activity" icon={TrendingUp}>
           <ul className="space-y-3">
-            {MOCK_AUDIT_LOGS.slice(0, 5).map((log) => (
+            {recentAudits.slice(0, 5).map((log) => (
               <li key={log.id} className="flex items-start gap-3 text-sm">
                 <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-gold-500" />
                 <div className="min-w-0">

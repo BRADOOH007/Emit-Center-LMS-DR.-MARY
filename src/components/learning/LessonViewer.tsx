@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   BookOpen,
   ChevronDown,
@@ -16,7 +16,7 @@ import {
   CheckCircle2,
   Circle,
 } from 'lucide-react';
-import { MOCK_LESSON_SECTIONS, MOCK_LESSON_CONTENTS, MOCK_COURSES } from '@/lib/mock-data';
+import type { LessonContent, LessonSection } from '@/types';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/utils';
@@ -34,11 +34,80 @@ export function LessonViewer({ courseId }: { courseId: string }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
   const [activeContentId, setActiveContentId] = useState<string | null>(null);
-  const [completedIds, setCompletedIds] = useState<Set<string>>(new Set(['cnt_0001', 'cnt_0002']));
+  const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
+  const [sections, setSections] = useState<LessonSection[]>([]);
+  const [allContents, setAllContents] = useState<LessonContent[]>([]);
+  const [courseTitle, setCourseTitle] = useState('');
 
-  const course = MOCK_COURSES.find((c) => c.id === courseId);
-  const sections = MOCK_LESSON_SECTIONS;
-  const allContents = MOCK_LESSON_CONTENTS.filter((c) => c.courseId === courseId);
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/content/${encodeURIComponent(courseId)}`)
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: { sections: [] } })))
+      .then((json) => {
+        if (!active) return;
+        const data = json.data ?? { sections: [] };
+        const rawSections: { contents?: unknown }[] = Array.isArray(data.sections) ? data.sections : [];
+        const contents: LessonContent[] = rawSections.flatMap((s) =>
+          Array.isArray((s as { contents?: unknown }).contents)
+            ? (s as { contents: { id: string; sectionId: string; courseId: string; title: string; type: LessonContent['type']; embedUrl?: string; fileUrl?: string; scormManifestUrl?: string; duration?: string; isCompleted?: boolean; order: number }[] }).contents.map((c) => ({
+                id: c.id,
+                sectionId: c.sectionId,
+                courseId: c.courseId,
+                title: c.title,
+                type: c.type,
+                embedUrl: c.embedUrl,
+                fileUrl: c.fileUrl,
+                scormManifestUrl: c.scormManifestUrl,
+                duration: c.duration,
+                isCompleted: c.isCompleted,
+                order: c.order,
+              }))
+            : [],
+        );
+        const secs: LessonSection[] = rawSections
+          .filter((s) => Array.isArray((s as { contents?: unknown }).contents) && (s as { contents: unknown[] }).contents.length > 0)
+          .map((s) => ({
+            id: (s as { id: string }).id,
+            title: (s as { title: string }).title,
+            order: (s as { order: number }).order,
+            contentType: (s as { contentType: LessonSection['contentType'] }).contentType,
+            duration: (s as { duration?: string }).duration,
+          }));
+        setAllContents(contents);
+        setSections(secs);
+      })
+      .catch(() => {
+        if (active) {
+          setSections([]);
+          setAllContents([]);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [courseId]);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/courses')
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: { data: [] } })))
+      .then((json) => {
+        if (!active) return;
+        const list = Array.isArray(json.data)
+          ? json.data
+          : Array.isArray(json.data?.data)
+            ? json.data.data
+            : [];
+        const course = list.find((c: { id: string }) => c.id === courseId);
+        if (course) setCourseTitle(course.title ?? '');
+      })
+      .catch(() => {
+        if (active) setCourseTitle('');
+      });
+    return () => {
+      active = false;
+    };
+  }, [courseId]);
 
   const activeContent = useMemo(
     () => allContents.find((c) => c.id === activeContentId) ?? allContents[0] ?? null,
@@ -74,7 +143,7 @@ export function LessonViewer({ courseId }: { courseId: string }) {
       )}>
         <div className="px-3 py-4">
           <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-text-muted/70">Course Content</p>
-          <p className="mt-0.5 text-sm font-semibold text-text-primary truncate">{course?.title}</p>
+          <p className="mt-0.5 text-sm font-semibold text-text-primary truncate">{courseTitle || 'Course Content'}</p>
         </div>
         <div className="divider" />
         <nav className="flex-1 px-1 pb-4">

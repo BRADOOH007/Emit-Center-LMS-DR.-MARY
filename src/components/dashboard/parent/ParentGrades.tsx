@@ -1,29 +1,85 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ClipboardList, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { PageIntro, DataColumn, DataTable, ProgressBarCell, SectionPanel, StatCard } from '@/components/dashboard/primitives';
-import { getGradebookForStudent, getLinkedStudentIds } from '@/lib/dashboard-data';
-import { MOCK_COURSES, MOCK_USERS } from '@/lib/mock-data';
-import { useLocale } from '@/components/providers/AppProviders';
+import { useLocale, useSession } from '@/components/providers/AppProviders';
+
+type GradeRow = {
+  id: string;
+  courseId: string;
+  userId: string;
+  overallPercentage: number;
+  letterGrade: string;
+  comments: string;
+  lastUpdated: string;
+  studentName: string;
+  courseTitle: string;
+};
 
 export function ParentGrades({ parentId }: { parentId: string }) {
   const { formatDate } = useLocale();
+  const { user } = useSession();
   const [search, setSearch] = useState('');
-  const studentIds = useMemo(() => getLinkedStudentIds(parentId), [parentId]);
+  const [entries, setEntries] = useState<GradeRow[]>([]);
+  const [studentCount, setStudentCount] = useState(0);
 
-  const entries = useMemo(
-    () =>
-      studentIds.flatMap((studentId) =>
-        getGradebookForStudent(studentId).map((grade) => ({
-          ...grade,
-          studentName: MOCK_USERS.find((u) => u.id === studentId)?.fullName ?? studentId,
-          courseTitle: MOCK_COURSES.find((c) => c.id === grade.courseId)?.title ?? grade.courseId,
-        })),
-      ),
-    [studentIds],
-  );
+  useEffect(() => {
+    let active = true;
+
+    async function load() {
+      const links: { student?: { id: string; fullName: string } | null }[] = await fetch(`/api/users/${encodeURIComponent(user.id)}/linked-students`)
+        .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+        .then((json) => (Array.isArray(json.data) ? json.data : []));
+      const studentList: { id: string; fullName: string }[] = links
+        .map((link) => link.student)
+        .filter((s): s is { id: string; fullName: string } => Boolean(s));
+      const studentIds = studentList.map((s) => s.id);
+
+      const enrollmentRows = await Promise.all(
+        studentIds.map((id) =>
+          fetch(`/api/enrollments?userId=${encodeURIComponent(id)}`)
+            .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+            .then((json) => (Array.isArray(json.data) ? json.data : [])),
+        ),
+      );
+
+      const courseTitleById = new Map<string, string>();
+      enrollmentRows
+        .flat()
+        .forEach((enrollment: { courseId: string; course?: { title?: string } }) => {
+          courseTitleById.set(enrollment.courseId, enrollment.course?.title ?? enrollment.courseId);
+        });
+      const courseIdList = Array.from(courseTitleById.keys());
+
+      const gradebookRows = await Promise.all(
+        courseIdList.map((courseId) =>
+          fetch(`/api/gradebook/${encodeURIComponent(courseId)}`)
+            .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+            .then((json) => (Array.isArray(json.data) ? json.data : [])),
+        ),
+      );
+
+      const entryList: GradeRow[] = gradebookRows
+        .flat()
+        .filter((g: { userId: string }) => studentIds.includes(g.userId))
+        .map((g: GradeRow) => ({
+          ...g,
+          studentName: studentList.find((s) => s.id === g.userId)?.fullName ?? g.userId,
+          courseTitle: courseTitleById.get(g.courseId) ?? g.courseId,
+        }));
+
+      if (!active) return;
+      setStudentCount(studentList.length);
+      setEntries(entryList);
+    }
+
+    load();
+    return () => {
+      active = false;
+    };
+  }, [user.id]);
 
   const filtered = entries.filter(
     (e) =>
@@ -31,7 +87,7 @@ export function ParentGrades({ parentId }: { parentId: string }) {
       e.studentName.toLowerCase().includes(search.toLowerCase()),
   );
 
-  const columns: DataColumn<(typeof entries)[number]>[] = [
+  const columns: DataColumn<GradeRow>[] = [
     {
       key: 'student',
       header: 'Student',
@@ -82,7 +138,7 @@ export function ParentGrades({ parentId }: { parentId: string }) {
         <StatCard label="Grade Records" value={entries.length} hint="Across students" icon={ClipboardList} tone="gold" />
         <StatCard label="Strong (A/B)" value={entries.filter((e) => e.overallPercentage >= 80).length} hint="80% or above" icon={ClipboardList} tone="emerald" />
         <StatCard label="Needs Work" value={entries.filter((e) => e.overallPercentage < 70).length} hint="Below 70%" icon={ClipboardList} tone="red" />
-        <StatCard label="Students" value={studentIds.length} hint="Linked profiles" icon={ClipboardList} tone="blue" />
+        <StatCard label="Students" value={studentCount} hint="Linked profiles" icon={ClipboardList} tone="blue" />
       </div>
 
       <div className="relative max-w-sm">

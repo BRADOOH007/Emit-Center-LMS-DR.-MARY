@@ -1,12 +1,12 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Megaphone, Pin, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { PageIntro, SectionPanel, StatCard } from '@/components/dashboard/primitives';
-import { getAnnouncements, getInstructorCourses } from '@/lib/dashboard-data';
 import { useLocale } from '@/components/providers/AppProviders';
+import type { Course } from '@/types';
 import type { AnnouncementData } from '@/types/dashboard';
 
 export function InstructorAnnouncements({ instructorId }: { instructorId: string }) {
@@ -14,27 +14,54 @@ export function InstructorAnnouncements({ instructorId }: { instructorId: string
   const [search, setSearch] = useState('');
   const [composerOpen, setComposerOpen] = useState(false);
   const [draft, setDraft] = useState({ courseId: '', title: '', body: '' });
-  const courses = useMemo(() => getInstructorCourses(instructorId), [instructorId]);
-  const courseIds = courses.map((c) => c.id);
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [announcements, setAnnouncements] = useState<AnnouncementData[]>([]);
 
-  const [announcements, setAnnouncements] = useState<AnnouncementData[]>(() =>
-    getAnnouncements().filter((a) => courseIds.includes(a.courseId)).sort((a, b) => Number(b.pinned) - Number(a.pinned)),
-  );
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      fetch('/api/admin/courses').then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] }))),
+      fetch('/api/announcements').then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] }))),
+    ])
+      .then(([coursesJson, annJson]) => {
+        if (!active) return;
+        const myCourses: Course[] = Array.isArray(coursesJson.data)
+          ? coursesJson.data.filter((c: Course) => c.instructorId === instructorId)
+          : [];
+        const courseIds = myCourses.map((c) => c.id);
+        setCourses(myCourses);
+        setAnnouncements(
+          Array.isArray(annJson.data)
+            ? annJson.data
+                .filter((a: AnnouncementData) => courseIds.includes(a.courseId))
+                .sort((a: AnnouncementData, b: AnnouncementData) => Number(b.pinned) - Number(a.pinned))
+            : [],
+        );
+      })
+      .catch(() => {
+        if (active) {
+          setCourses([]);
+          setAnnouncements([]);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [instructorId]);
 
-  const publish = () => {
+  const publish = async () => {
     if (!draft.title.trim() || !draft.body.trim()) return;
     const courseId = draft.courseId || courses[0]?.id;
     if (!courseId) return;
-    const post: AnnouncementData = {
-      id: `ann_new_${Date.now()}`,
-      authorId: instructorId,
-      courseId,
-      title: draft.title.trim(),
-      body: draft.body.trim(),
-      pinned: false,
-      createdAt: new Date().toISOString(),
-    };
-    setAnnouncements((prev) => [post, ...prev]);
+    const res = await fetch('/api/announcements', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ courseId, title: draft.title.trim(), body: draft.body.trim(), pinned: false }),
+    });
+    const json = await res.json().catch(() => null);
+    if (res.ok && json?.data) {
+      setAnnouncements((prev) => [json.data as AnnouncementData, ...prev]);
+    }
     setComposerOpen(false);
     setDraft({ courseId: '', title: '', body: '' });
   };

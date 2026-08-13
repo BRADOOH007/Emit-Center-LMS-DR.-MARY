@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   Bell,
@@ -12,11 +12,10 @@ import {
   MessageCircle,
   MessageSquare,
 } from 'lucide-react';
-import { MOCK_NOTIFICATIONS } from '@/lib/mock-data';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/utils';
-import type { NotificationType } from '@/types';
+import type { Notification, NotificationType } from '@/types';
 
 const TYPE_META: Record<NotificationType, { icon: typeof Bell; label: string }> = {
   assignment_due: { icon: CalendarCheck, label: 'Assignment Due' },
@@ -29,9 +28,22 @@ const TYPE_META: Record<NotificationType, { icon: typeof Bell; label: string }> 
 
 export function NotificationCenter({ userId }: { userId: string }) {
   const [open, setOpen] = useState(false);
-  const [notifications, setNotifications] = useState(
-    MOCK_NOTIFICATIONS.filter((n) => n.userId === userId),
-  );
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/notifications')
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (active) setNotifications(Array.isArray(json.data) ? (json.data as Notification[]) : []);
+      })
+      .catch(() => {
+        if (active) setNotifications([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const unreadCount = useMemo(
     () => notifications.filter((n) => !n.isRead).length,
@@ -39,16 +51,34 @@ export function NotificationCenter({ userId }: { userId: string }) {
   );
 
   const recent = useMemo(
-    () => notifications.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 5),
+    () => [...notifications].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 5),
     [notifications],
   );
 
-  const handleMarkAllRead = useCallback(() => {
+  const handleMarkAllRead = useCallback(async () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    try {
+      await fetch('/api/notifications', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ markAll: true }),
+      });
+    } catch {
+      return;
+    }
   }, []);
 
-  const handleMarkRead = useCallback((id: string) => {
+  const handleMarkRead = useCallback(async (id: string) => {
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
+    try {
+      await fetch('/api/notifications', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notificationIds: [id] }),
+      });
+    } catch {
+      return;
+    }
   }, []);
 
   return (
@@ -88,7 +118,7 @@ export function NotificationCenter({ userId }: { userId: string }) {
                 </div>
               ) : (
                 recent.map((notif) => {
-                  const meta = TYPE_META[notif.type];
+                  const meta = TYPE_META[notif.type] ?? { icon: Bell, label: 'Notification' };
                   const Icon = meta.icon;
                   return (
                     <div
@@ -139,12 +169,34 @@ export function NotificationCenter({ userId }: { userId: string }) {
 }
 
 export function NotificationList({ userId }: { userId: string }) {
-  const [notifications, setNotifications] = useState(
-    MOCK_NOTIFICATIONS.filter((n) => n.userId === userId),
-  );
+  const [notifications, setNotifications] = useState<Notification[]>([]);
 
-  const handleMarkAllRead = useCallback(() => {
+  useEffect(() => {
+    let active = true;
+    fetch('/api/notifications')
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (active) setNotifications(Array.isArray(json.data) ? (json.data as Notification[]) : []);
+      })
+      .catch(() => {
+        if (active) setNotifications([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleMarkAllRead = useCallback(async () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    try {
+      await fetch('/api/notifications', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ markAll: true }),
+      });
+    } catch {
+      return;
+    }
   }, []);
 
   const sorted = useMemo(
@@ -164,7 +216,7 @@ export function NotificationList({ userId }: { userId: string }) {
 
       <div className="space-y-1">
         {sorted.map((notif) => {
-          const meta = TYPE_META[notif.type];
+          const meta = TYPE_META[notif.type] ?? { icon: Bell, label: 'Notification' };
           const Icon = meta.icon;
           return (
             <div

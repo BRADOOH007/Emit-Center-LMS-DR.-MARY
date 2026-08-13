@@ -1,11 +1,10 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CreditCard, RotateCcw, Search, TrendingUp } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { PageIntro, DataColumn, DataTable, SectionPanel, StatCard } from '@/components/dashboard/primitives';
-import { getPayments } from '@/lib/dashboard-data';
 import { useLocale } from '@/components/providers/AppProviders';
 import type { Payment } from '@/types/dashboard';
 
@@ -13,7 +12,22 @@ export function AdminPayments() {
   const { formatCurrency, formatDate } = useLocale();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | string>('all');
-  const [rows, setRows] = useState<Payment[]>(() => getPayments());
+  const [rows, setRows] = useState<Payment[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/payments')
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (active) setRows(Array.isArray(json.data) ? (json.data as Payment[]) : []);
+      })
+      .catch(() => {
+        if (active) setRows([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const refund = (id: string) =>
     setRows((prev) => prev.map((p) => (p.id === id ? { ...p, status: 'refunded', amount: p.amount } : p)));
@@ -39,7 +53,7 @@ export function AdminPayments() {
       header: 'Amount',
       render: (payment) => (
         <span className="font-semibold tabular-nums text-text-primary">
-          {formatCurrency(payment.amount)} {payment.currency}
+          {formatCurrency(payment.amount / 100)} {payment.currency}
         </span>
       ),
     },
@@ -84,20 +98,20 @@ export function AdminPayments() {
       <PageIntro
         kicker="Admin · Payments"
         title="Payment Ledger"
-        subtitle={`${payments.length} transactions · ${formatCurrency(totalRevenue)} collected via Stripe`}
+        subtitle={`${payments.length} transactions · ${formatCurrency(totalRevenue / 100)} collected via Stripe`}
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Collected"
-          value={formatCurrency(totalRevenue)}
+          value={formatCurrency(totalRevenue / 100)}
           hint={`${succeeded.length} successful payments`}
           icon={TrendingUp}
           tone="emerald"
         />
         <StatCard
           label="Refunded"
-          value={formatCurrency(refunded)}
+          value={formatCurrency(refunded / 100)}
           hint="Processed refunds"
           icon={TrendingUp}
           tone="red"
@@ -111,7 +125,7 @@ export function AdminPayments() {
         />
         <StatCard
           label="Avg. Payment"
-          value={formatCurrency(succeeded.length ? totalRevenue / succeeded.length : 0)}
+          value={formatCurrency(succeeded.length ? totalRevenue / succeeded.length / 100 : 0)}
           hint="Per successful payment"
           icon={CreditCard}
           tone="blue"

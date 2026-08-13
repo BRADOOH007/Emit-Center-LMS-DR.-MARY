@@ -1,21 +1,45 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { UserRound } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { PageIntro, SectionPanel, StatCard } from '@/components/dashboard/primitives';
-import { getLinkedStudentIds } from '@/lib/dashboard-data';
-import { MOCK_USERS } from '@/lib/mock-data';
+import { useSession } from '@/components/providers/AppProviders';
 import { UserAvatar } from '@/components/ui/UserAvatar';
-import type { User } from '@/types';
+
+type LinkedStudent = {
+  id: string;
+  fullName: string;
+  email: string;
+  avatarUrl?: string;
+};
 
 export function ParentStudents({ parentId }: { parentId: string }) {
-  const studentIds = useMemo(() => getLinkedStudentIds(parentId), [parentId]);
-  const [students, setStudents] = useState<User[]>(() => MOCK_USERS.filter((u) => studentIds.includes(u.id)));
+  const { user } = useSession();
+  const [students, setStudents] = useState<LinkedStudent[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [code, setCode] = useState('');
   const [pendingCode, setPendingCode] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/users/${encodeURIComponent(user.id)}/linked-students`)
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        const links: { student?: LinkedStudent | null }[] = Array.isArray(json.data) ? json.data : [];
+        const list: LinkedStudent[] = links
+          .map((link) => link.student)
+          .filter((s): s is LinkedStudent => Boolean(s));
+        if (active) setStudents(list);
+      })
+      .catch(() => {
+        if (active) setStudents([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [user.id]);
 
   const linkStudent = () => {
     if (!code.trim()) return;
@@ -84,7 +108,6 @@ export function ParentStudents({ parentId }: { parentId: string }) {
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <Badge variant="success">Linked</Badge>
               <Badge variant="neutral">Student</Badge>
-              <Badge variant="neutral">{student.countryCode}</Badge>
             </div>
             <div className="mt-4 flex gap-2 border-t border-line pt-4">
               <a href="/dashboard/parent/grades" className="btn btn-outline btn-sm">Grades</a>

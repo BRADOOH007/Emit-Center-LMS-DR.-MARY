@@ -1,14 +1,25 @@
 import { NextRequest } from 'next/server';
-import { MOCK_LESSON_SECTIONS, MOCK_LESSON_CONTENTS } from '@/lib/mock-data';
-import { ok } from '@/lib/api-helpers';
+import { prisma } from '@/lib/prisma';
+import { ok, forbid } from '@/lib/api-helpers';
+import { getSessionUser } from '@/lib/auth';
+import { isAdminRole } from '@/lib/security';
 
 export async function GET(_req: NextRequest, { params }: { params: { courseId: string } }) {
-  const sections = MOCK_LESSON_SECTIONS.map((section) => ({
-    ...section,
-    contents: MOCK_LESSON_CONTENTS
-      .filter((c) => c.sectionId === section.id && c.courseId === params.courseId)
-      .sort((a, b) => a.order - b.order),
-  })).sort((a, b) => a.order - b.order);
+  const me = await getSessionUser();
+  if (!me) return forbid('Sign in required');
+
+  const course = await prisma.course.findUnique({ where: { id: params.courseId } });
+  if (!course) return forbid('Course not found');
+
+  const sections = await prisma.lessonSection.findMany({
+    orderBy: { order: 'asc' },
+    include: {
+      contents: {
+        where: { courseId: params.courseId },
+        orderBy: { order: 'asc' },
+      },
+    },
+  });
 
   return ok({ sections, courseId: params.courseId });
 }

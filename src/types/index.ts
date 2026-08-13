@@ -41,6 +41,7 @@ export interface User {
   locale: SupportedLocale;
   timeZone: SupportedTimeZone;
   currency: SupportedCurrency;
+  emailVerifiedAt?: string | null;
   createdAt?: string;
 }
 

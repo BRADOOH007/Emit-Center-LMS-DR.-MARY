@@ -1,29 +1,66 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CircleDollarSign, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { PageIntro, DataColumn, DataTable, SectionPanel, StatCard } from '@/components/dashboard/primitives';
-import { getLinkedStudentIds, getStudentPayments } from '@/lib/dashboard-data';
-import { MOCK_USERS } from '@/lib/mock-data';
-import { useLocale } from '@/components/providers/AppProviders';
-import type { Payment } from '@/types/dashboard';
+import { useLocale, useSession } from '@/components/providers/AppProviders';
+
+type PaymentRow = {
+  id: string;
+  userId: string;
+  courseId: string;
+  enrollmentId: string;
+  amount: number;
+  currency: string;
+  stripePaymentIntentId: string;
+  status: string;
+  createdAt: string;
+  studentName: string;
+};
 
 export function ParentPayments({ parentId }: { parentId: string }) {
   const { formatCurrency, formatDate } = useLocale();
+  const { user } = useSession();
   const [search, setSearch] = useState('');
-  const studentIds = useMemo(() => getLinkedStudentIds(parentId), [parentId]);
+  const [entries, setEntries] = useState<PaymentRow[]>([]);
+  const [studentCount, setStudentCount] = useState(0);
 
-  const entries = useMemo(
-    () =>
-      studentIds.flatMap((studentId) =>
-        getStudentPayments(studentId).map((payment) => ({
-          ...payment,
-          studentName: MOCK_USERS.find((u) => u.id === studentId)?.fullName ?? studentId,
-        })),
-      ),
-    [studentIds],
-  );
+  useEffect(() => {
+    let active = true;
+
+    async function load() {
+      const links: { student?: { id: string; fullName: string } | null }[] = await fetch(`/api/users/${encodeURIComponent(user.id)}/linked-students`)
+        .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+        .then((json) => (Array.isArray(json.data) ? json.data : []));
+      const studentList: { id: string; fullName: string }[] = links
+        .map((link) => link.student)
+        .filter((s): s is { id: string; fullName: string } => Boolean(s));
+
+      const paymentRows = await Promise.all(
+        studentList.map((student) =>
+          fetch(`/api/payments?userId=${encodeURIComponent(student.id)}`)
+            .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+            .then((json) => (Array.isArray(json.data) ? json.data : []))
+            .then((rows) =>
+              rows.map((p: Omit<PaymentRow, 'studentName'>) => ({
+                ...p,
+                studentName: student.fullName,
+              })),
+            ),
+        ),
+      );
+
+      if (!active) return;
+      setStudentCount(studentList.length);
+      setEntries(paymentRows.flat());
+    }
+
+    load();
+    return () => {
+      active = false;
+    };
+  }, [user.id]);
 
   const succeeded = entries.filter((p) => p.status === 'succeeded');
   const totalPaid = succeeded.reduce((s, p) => s + p.amount, 0);
@@ -34,7 +71,7 @@ export function ParentPayments({ parentId }: { parentId: string }) {
       p.studentName.toLowerCase().includes(search.toLowerCase()),
   );
 
-  const columns: DataColumn<Payment & { studentName: string }>[] = [
+  const columns: DataColumn<PaymentRow>[] = [
     {
       key: 'student',
       header: 'Student',
@@ -50,7 +87,7 @@ export function ParentPayments({ parentId }: { parentId: string }) {
     {
       key: 'amount',
       header: 'Amount',
-      render: (payment) => <span className="font-semibold tabular-nums text-text-primary">{formatCurrency(payment.amount)} {payment.currency}</span>,
+      render: (payment) => <span className="font-semibold tabular-nums text-text-primary">{formatCurrency(payment.amount / 100)} {payment.currency}</span>,
     },
     {
       key: 'date',
@@ -73,14 +110,14 @@ export function ParentPayments({ parentId }: { parentId: string }) {
       <PageIntro
         kicker="Parent · Payments"
         title="Family Payments"
-        subtitle={`${entries.length} transactions · ${formatCurrency(totalPaid)} paid for your students`}
+        subtitle={`${entries.length} transactions · ${formatCurrency(totalPaid / 100)} paid for your students`}
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Total Paid" value={formatCurrency(totalPaid)} hint="Successful payments" icon={CircleDollarSign} tone="emerald" />
+        <StatCard label="Total Paid" value={formatCurrency(totalPaid / 100)} hint="Successful payments" icon={CircleDollarSign} tone="emerald" />
         <StatCard label="Transactions" value={entries.length} hint="All time" icon={CircleDollarSign} tone="blue" />
         <StatCard label="Pending" value={entries.filter((p) => p.status === 'processing').length} hint="In processing" icon={CircleDollarSign} tone="gold" />
-        <StatCard label="Students" value={studentIds.length} hint="Linked profiles" icon={CircleDollarSign} tone="brown" />
+        <StatCard label="Students" value={studentCount} hint="Linked profiles" icon={CircleDollarSign} tone="brown" />
       </div>
 
       <div className="relative max-w-sm">

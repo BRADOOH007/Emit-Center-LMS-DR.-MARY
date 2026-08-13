@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   CheckCheck,
   Clock,
@@ -11,7 +11,7 @@ import {
   Users,
   Search,
 } from 'lucide-react';
-import { MOCK_SESSIONS, MOCK_USERS, MOCK_ATTENDANCE_RECORDS } from '@/lib/mock-data';
+import type { AttendanceRecord, ClassSession, User } from '@/types';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/utils';
@@ -24,14 +24,71 @@ const STATUS_OPTIONS: { value: 'present' | 'absent' | 'late' | 'excused'; label:
 ];
 
 export function AttendanceTracker() {
-  const [selectedSessionId, setSelectedSessionId] = useState(MOCK_SESSIONS[0]?.id ?? '');
+  const [sessions, setSessions] = useState<ClassSession[]>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState('');
   const [showQrCode, setShowQrCode] = useState(false);
-  const [records, setRecords] = useState(MOCK_ATTENDANCE_RECORDS);
+  const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [fallbackUsers, setFallbackUsers] = useState<User[]>([]);
   const [search, setSearch] = useState('');
 
+  useEffect(() => {
+    let active = true;
+    fetch('/api/sessions')
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (!active) return;
+        const list = Array.isArray(json.data) ? (json.data as ClassSession[]) : [];
+        setSessions(list);
+        setSelectedSessionId((prev) => (prev && list.some((s) => s.id === prev) ? prev : (list[0]?.id ?? '')));
+      })
+      .catch(() => {
+        if (active) setSessions([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/users?role=student')
+      .then((res) => {
+        if (!res.ok) return Promise.resolve({ data: [] });
+        return res.json();
+      })
+      .then((json) => {
+        if (active) setFallbackUsers(Array.isArray(json.data) ? (json.data as User[]) : []);
+      })
+      .catch(() => {
+        if (active) setFallbackUsers([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (!selectedSessionId) {
+      setRecords([]);
+      return;
+    }
+    fetch(`/api/attendance/${encodeURIComponent(selectedSessionId)}`)
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (active) setRecords(Array.isArray(json.data) ? (json.data as AttendanceRecord[]) : []);
+      })
+      .catch(() => {
+        if (active) setRecords([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedSessionId]);
+
   const selectedSession = useMemo(
-    () => MOCK_SESSIONS.find((s) => s.id === selectedSessionId),
-    [selectedSessionId],
+    () => sessions.find((s) => s.id === selectedSessionId),
+    [sessions, selectedSessionId],
   );
 
   const sessionRecords = useMemo(() => {
@@ -39,8 +96,17 @@ export function AttendanceTracker() {
   }, [records, selectedSessionId]);
 
   const enrolledUsers = useMemo(() => {
-    return MOCK_USERS.filter((u) => u.roles.includes('student'));
-  }, []);
+    if (fallbackUsers.length > 0) return fallbackUsers;
+    const seen = new Set<string>();
+    const users: User[] = [];
+    records.forEach((r) => {
+      if (r.user && !seen.has(r.user.id)) {
+        seen.add(r.user.id);
+        users.push(r.user);
+      }
+    });
+    return users;
+  }, [fallbackUsers, records]);
 
   const filteredUsers = useMemo(() => {
     if (!search) return enrolledUsers;
@@ -60,25 +126,44 @@ export function AttendanceTracker() {
   const handleToggleStatus = useCallback(
     async (userId: string, currentStatus: string) => {
       const nextStatus = currentStatus === 'present' ? 'absent' : 'present';
-      const existing = records.find((r) => r.sessionId === selectedSessionId && r.userId === userId);
-
-      if (existing) {
-        setRecords((prev) =>
-          prev.map((r) => (r.id === existing.id ? { ...r, status: nextStatus as typeof r.status, checkInMethod: 'manual' as const, checkInTime: new Date().toISOString() } : r)),
-        );
-      } else {
-        const newRecord = {
-          id: `att_${Date.now()}`,
-          sessionId: selectedSessionId,
-          userId,
-          status: nextStatus as 'present' | 'absent' | 'late' | 'excused',
-          checkInMethod: 'manual' as const,
-          checkInTime: new Date().toISOString(),
-        };
-        setRecords((prev) => [...prev, newRecord]);
+      if (!selectedSessionId) return;
+      try {
+        const res = await fetch(`/api/attendance/${encodeURIComponent(selectedSessionId)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, status: nextStatus, checkInMethod: 'manual' }),
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        const record = json?.data as (AttendanceRecord & { id?: string }) | undefined;
+        setRecords((prev) => {
+          const existing = prev.find((r) => r.userId === userId);
+          if (existing) {
+            return prev.map((r) =>
+              r.userId === userId
+                ? { ...r, status: nextStatus as AttendanceRecord['status'], checkInMethod: 'manual' as const, checkInTime: new Date().toISOString() }
+                : r,
+            );
+          }
+          const user = enrolledUsers.find((u) => u.id === userId);
+          return [
+            ...prev,
+            {
+              id: record?.id ?? `att_${Date.now()}`,
+              sessionId: selectedSessionId,
+              userId,
+              status: nextStatus as AttendanceRecord['status'],
+              checkInMethod: 'manual' as const,
+              checkInTime: new Date().toISOString(),
+              user,
+            },
+          ];
+        });
+      } catch {
+        return;
       }
     },
-    [records, selectedSessionId],
+    [selectedSessionId, enrolledUsers],
   );
 
   const getUserStatus = useCallback(
@@ -100,7 +185,7 @@ export function AttendanceTracker() {
             onChange={(e) => setSelectedSessionId(e.target.value)}
             className="input !py-2 min-w-[20rem]"
           >
-            {MOCK_SESSIONS.map((s) => (
+            {sessions.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.title} — {s.date.slice(0, 10)} {s.startTime}–{s.endTime}
               </option>

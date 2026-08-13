@@ -1,18 +1,34 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BookOpen, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { PageIntro, DataColumn, DataTable, ProgressBarCell, SectionPanel, StatCard } from '@/components/dashboard/primitives';
-import { getStudentEnrollments } from '@/lib/dashboard-data';
 import { useLocale } from '@/components/providers/AppProviders';
 import type { Enrollment } from '@/types/dashboard';
 
 export function StudentCourses({ studentId }: { studentId: string }) {
   const { formatDate } = useLocale();
   const [search, setSearch] = useState('');
-  const enrollments = useMemo(() => getStudentEnrollments(studentId), [studentId]);
-  const active = enrollments.filter((e) => e.status === 'active');
+  const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/enrollments')
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (active) setEnrollments(Array.isArray(json.data) ? json.data : []);
+      })
+      .catch(() => {
+        if (active) setEnrollments([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const mine = enrollments.filter((e) => e.userId === studentId);
+  const active = mine.filter((e) => e.status === 'active');
 
   const filtered = active.filter((e) => e.course?.title.toLowerCase().includes(search.toLowerCase()));
 
@@ -30,11 +46,15 @@ export function StudentCourses({ studentId }: { studentId: string }) {
     {
       key: 'schedule',
       header: 'Schedule',
-      render: (enrollment) => (
-        <span className="text-sm text-text-muted">
-          {enrollment.course?.schedule?.days.join(', ')} · {formatDate(enrollment.course?.schedule?.startDate ?? '')}
-        </span>
-      ),
+      render: (enrollment) => {
+        const schedule = enrollment.course?.schedule;
+        return (
+          <span className="text-sm text-text-muted">
+            {schedule?.days?.join(', ') ?? 'Schedule TBD'}
+            {schedule?.startDate ? ` · ${formatDate(schedule.startDate)}` : ''}
+          </span>
+        );
+      },
     },
     {
       key: 'progress',
@@ -67,8 +87,8 @@ export function StudentCourses({ studentId }: { studentId: string }) {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Active Courses" value={active.length} hint="Currently enrolled" icon={BookOpen} tone="gold" />
-        <StatCard label="Completed" value={enrollments.filter((e) => e.status === 'completed').length} hint="Finished courses" icon={BookOpen} tone="emerald" />
-        <StatCard label="Pending" value={enrollments.filter((e) => e.status === 'pending').length} hint="Awaiting start" icon={BookOpen} tone="gold" />
+        <StatCard label="Completed" value={mine.filter((e) => e.status === 'completed').length} hint="Finished courses" icon={BookOpen} tone="emerald" />
+        <StatCard label="Pending" value={mine.filter((e) => e.status === 'pending').length} hint="Awaiting start" icon={BookOpen} tone="gold" />
         <StatCard label="Onsite" value={active.filter((e) => e.course?.format === 'onsite').length} hint="In-person" icon={BookOpen} tone="brown" />
       </div>
 

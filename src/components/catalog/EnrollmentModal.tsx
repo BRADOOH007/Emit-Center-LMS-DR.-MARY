@@ -16,6 +16,7 @@ import { CURRENCY_SYMBOLS } from '@/lib/i18n/currency';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/utils';
+import { useSession } from '@/components/providers/AppProviders';
 
 type Step = 'review' | 'payment' | 'confirming' | 'success' | 'error';
 
@@ -74,6 +75,7 @@ function EnrollmentModal({
   userCurrency: SupportedCurrency;
   onClose: () => void;
 }) {
+  const { user } = useSession();
   const [step, setStep] = useState<Step>('review');
   const [promoCode, setPromoCode] = useState('');
   const [promoApplied, setPromoApplied] = useState<{
@@ -111,7 +113,6 @@ function EnrollmentModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           courseId: course.id,
-          userId: 'usr_0001',
           currency: userCurrency,
           promoCode: promoCode.trim(),
         }),
@@ -146,7 +147,6 @@ function EnrollmentModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           courseId: course.id,
-          userId: 'usr_0001',
           currency: userCurrency,
           promoCode: promoApplied?.code,
         }),
@@ -160,21 +160,24 @@ function EnrollmentModal({
 
       setStep('confirming');
 
-      await new Promise((resolve) => setTimeout(resolve, 1800));
+      await new Promise((resolve) => setTimeout(resolve, 1200));
 
-      const enrollRes = await fetch('/api/enrollments', {
+      const confirmRes = await fetch('/api/payments/confirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: 'usr_0001', courseId: course.id }),
+        body: JSON.stringify({
+          courseId: course.id,
+          paymentIntentId: intentJson.data.paymentIntentId,
+        }),
       });
-      const enrollJson = await enrollRes.json();
-      if (!enrollJson.success) {
-        setPaymentError('Payment succeeded but enrollment failed. Contact support.');
+      const confirmJson = await confirmRes.json();
+      if (!confirmJson.success) {
+        setPaymentError(confirmJson.error ?? 'Payment succeeded but enrollment failed. Contact support.');
         setStep('error');
         return;
       }
 
-      setEnrollmentId(enrollJson.data.id);
+      setEnrollmentId(confirmJson.data.enrollment.id);
       setStep('success');
     } catch {
       setPaymentError('Payment processing failed. Please try again.');

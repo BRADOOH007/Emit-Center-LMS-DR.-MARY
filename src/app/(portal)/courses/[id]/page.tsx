@@ -7,14 +7,13 @@ import {
   GraduationCap,
   CalendarDays,
 } from 'lucide-react';
-import { MOCK_COURSES } from '@/lib/mock-data';
 import { getSession } from '@/lib/auth';
 import { CURRENCY_SYMBOLS } from '@/lib/i18n/currency';
 import { Badge } from '@/components/ui/Badge';
 import { UserAvatar } from '@/components/ui/UserAvatar';
 import { EnrollmentModalTrigger } from '@/components/catalog/EnrollmentModal';
 import { formatDate } from '@/lib/i18n/date';
-import type { SupportedCurrency } from '@/types';
+import type { Course, SupportedCurrency } from '@/types';
 
 const FORMAT_BADGE: Record<string, 'gold' | 'brown' | 'neutral'> = {
   onsite: 'brown',
@@ -40,8 +39,11 @@ const AGE_LABELS: Record<string, string> = {
 };
 
 export default async function CourseDetailPage({ params }: { params: { id: string } }) {
-  const course = MOCK_COURSES.find((c) => c.id === params.id || c.slug === params.id);
-  if (!course) notFound();
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+  const res = await fetch(`${baseUrl}/api/courses/${params.id}`, { cache: 'no-store' });
+  if (!res.ok) notFound();
+  const json = (await res.json()) as { success: boolean; data: Course };
+  const course = json.data;
 
   const session = await getSession();
   const userCurrency: SupportedCurrency = session?.user.currency ?? 'USD';

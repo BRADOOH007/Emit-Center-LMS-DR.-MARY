@@ -2,14 +2,12 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
-import { ArrowRight, Eye, EyeOff, Loader2, UserPlus } from 'lucide-react';
+import { ArrowRight, Eye, EyeOff, Loader2, MailCheck, UserPlus } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/Button';
 
 const ROLES = [
   { value: 'student', label: 'Student' },
-  { value: 'instructor', label: 'Instructor' },
   { value: 'parent', label: 'Parent / Guardian' },
 ];
 
@@ -22,7 +20,6 @@ const TIMEZONES = [
 ];
 
 export default function RegisterPage() {
-  const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -31,6 +28,8 @@ export default function RegisterPage() {
   const [timeZone, setTimeZone] = useState('America/New_York');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [verifyUrl, setVerifyUrl] = useState('');
 
   const handleRegister = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -53,7 +52,8 @@ export default function RegisterPage() {
       });
       const json = await res.json();
       if (json.success) {
-        router.push('/dashboard');
+        setSuccess(true);
+        if (json.data?.verifyUrl) setVerifyUrl(json.data.verifyUrl);
       } else {
         setError(json.error ?? 'Registration failed. Please try again.');
       }
@@ -86,6 +86,33 @@ export default function RegisterPage() {
         </div>
 
         <form onSubmit={handleRegister} className="panel space-y-5">
+          {success && (
+            <div className="space-y-4 rounded-xl bg-green-500/10 p-4 text-center">
+              <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-green-500/20 text-green-600 dark:text-green-400">
+                <MailCheck aria-hidden="true" className="h-5 w-5" />
+              </div>
+              <p className="text-sm font-medium text-text-primary">Account created successfully</p>
+              <p className="text-xs text-text-muted">
+                Please verify your email to activate your account.
+              </p>
+              {verifyUrl && (
+                <a
+                  href={verifyUrl}
+                  className="block break-all rounded-lg border border-line bg-base-50 px-3 py-2 text-xs font-medium text-gold-600 hover:text-gold-700 dark:text-gold-400"
+                >
+                  {verifyUrl}
+                </a>
+              )}
+              <Link
+                href="/login"
+                className="mt-1 inline-flex items-center justify-center gap-1 text-xs font-medium text-gold-600 hover:text-gold-700 dark:text-gold-400"
+              >
+                Go to sign in
+                <ArrowRight aria-hidden="true" className="h-3 w-3" />
+              </Link>
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <label htmlFor="fullName" className="label">Full name</label>
             <input
@@ -122,10 +149,10 @@ export default function RegisterPage() {
                 type={showPassword ? 'text' : 'password'}
                 autoComplete="new-password"
                 required
-                minLength={6}
+                minLength={8}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="At least 6 characters"
+                placeholder="At least 8 characters"
                 className="input !py-2.5 !pr-10"
               />
               <button
@@ -178,19 +205,21 @@ export default function RegisterPage() {
             </div>
           )}
 
-          <Button type="submit" variant="gold" size="lg" fullWidth disabled={loading}>
-            {loading ? (
-              <>
-                <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
-                Creating account...
-              </>
-            ) : (
-              <>
-                <UserPlus aria-hidden="true" className="h-4 w-4" />
-                Create Account
-              </>
-            )}
-          </Button>
+          {!success && (
+            <Button type="submit" variant="gold" size="lg" fullWidth disabled={loading}>
+              {loading ? (
+                <>
+                  <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+                  Creating account...
+                </>
+              ) : (
+                <>
+                  <UserPlus aria-hidden="true" className="h-4 w-4" />
+                  Create Account
+                </>
+              )}
+            </Button>
+          )}
 
           <div className="text-center">
             <p className="text-xs text-text-muted">

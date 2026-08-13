@@ -1,9 +1,8 @@
 'use client';
 
 import { ArrowLeft, ArrowRight, Clock, Globe, MapPin, Monitor, Video } from 'lucide-react';
-import { useCallback, useMemo, useState } from 'react';
-import type { ClassSession } from '@/types';
-import { MOCK_SESSIONS, MOCK_USERS, MOCK_ROOMS } from '@/lib/mock-data';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { ClassSession, FacilityRoom } from '@/types';
 import { formatDate, formatTime } from '@/lib/i18n/date';
 import { useLocale, useSession } from '@/components/providers/AppProviders';
 import { Badge } from '@/components/ui/Badge';
@@ -17,6 +16,38 @@ export function CalendarView() {
   const [weekOffset, setWeekOffset] = useState(0);
   const [selectedSession, setSelectedSession] = useState<ClassSession | null>(null);
   const [showLocalTime, setShowLocalTime] = useState(true);
+  const [sessions, setSessions] = useState<ClassSession[]>([]);
+  const [rooms, setRooms] = useState<FacilityRoom[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/sessions')
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (active) setSessions(Array.isArray(json.data) ? (json.data as ClassSession[]) : []);
+      })
+      .catch(() => {
+        if (active) setSessions([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/resources')
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: { rooms: [] } })))
+      .then((json) => {
+        if (active) setRooms(Array.isArray(json.data?.rooms) ? json.data.rooms : []);
+      })
+      .catch(() => {
+        if (active) setRooms([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const weekStart = useMemo(() => {
     const now = new Date();
@@ -41,16 +72,15 @@ export function CalendarView() {
   }, [weekStart, weekDays, fmtDate]);
 
   const sessionsForWeek = useMemo(() => {
-    const enriched = MOCK_SESSIONS.map((s) => ({
+    const enriched = sessions.map((s) => ({
       ...s,
-      instructor: MOCK_USERS.find((u) => u.id === s.instructorId),
-      room: s.roomId ? MOCK_ROOMS.find((r) => r.id === s.roomId) : undefined,
+      room: s.roomId ? rooms.find((r) => r.id === s.roomId) : undefined,
     }));
     return enriched.filter((s) => {
       const sessionDate = new Date(s.date + 'T00:00:00.000Z');
       return sessionDate >= weekDays[0] && sessionDate <= weekDays[6];
     });
-  }, [weekDays]);
+  }, [weekDays, sessions, rooms]);
 
   const getSessionsForDay = useCallback(
     (day: Date) => sessionsForWeek.filter((s) => {

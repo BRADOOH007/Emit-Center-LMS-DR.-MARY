@@ -2,15 +2,11 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { usePathname } from 'next/navigation';
 import { Menu, Moon, Sun } from 'lucide-react';
-import { MAIN_NAV } from '@/config/nav';
 import { useSession, useTheme } from '@/components/providers/AppProviders';
 import { ProfileDropdown } from '@/components/layout/ProfileDropdown';
-import { cn } from '@/lib/utils';
 
 export function HeaderNav({ onOpenDrawer, onSignOut }: { onOpenDrawer: () => void; onSignOut?: () => void }) {
-  const pathname = usePathname();
   const { user } = useSession();
   const { theme, toggleTheme } = useTheme();
 
@@ -44,29 +40,7 @@ export function HeaderNav({ onOpenDrawer, onSignOut }: { onOpenDrawer: () => voi
           </span>
         </Link>
 
-        <nav aria-label="Primary" className="ml-2 hidden flex-1 lg:block">
-          <ul className="flex items-center gap-0.5">
-            {MAIN_NAV.map((item) => {
-              const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-              return (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    aria-current={active ? 'page' : undefined}
-                    className={cn(
-                      'rounded-btn px-3 py-2 text-sm font-medium text-text-muted transition-colors hover:bg-line-soft hover:text-text-primary',
-                      active && 'bg-gold-500/10 font-semibold text-gold-700 dark:text-gold-300',
-                    )}
-                  >
-                    {item.label}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
-
-        <div className="flex flex-1 items-center justify-end gap-2 lg:flex-none">
+        <div className="ml-auto flex items-center gap-2">
           <button
             type="button"
             onClick={toggleTheme}
