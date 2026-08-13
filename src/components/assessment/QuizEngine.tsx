@@ -93,6 +93,7 @@ export function QuizEngine({ quizId }: { quizId: string }) {
       });
       const json = await res.json();
       if (json.success) {
+        setAttempt(json.data as QuizAttempt);
         setResult({ score: json.data.score, total: json.data.totalPoints, pct: json.data.percentage, grade: json.data.letterGrade });
         setSubmitted(true);
       }
@@ -125,11 +126,12 @@ export function QuizEngine({ quizId }: { quizId: string }) {
   const progressPct = quiz.questions.length > 0 ? (answeredCount / quiz.questions.length) * 100 : 0;
 
   if (submitted && result) {
-    const mcCount = quiz.questions.filter((q) => q.type === 'multiple-choice').length;
+    const results = attempt?.questionResults ?? null;
+    const aiCount = results ? results.filter((r) => r.aiGraded).length : 0;
     return (
-      <div className="mx-auto max-w-lg space-y-6 py-8 text-center">
-        <Trophy aria-hidden="true" className="mx-auto h-16 w-16 text-gold-500" />
-        <div>
+      <div className="mx-auto max-w-2xl space-y-6 py-8">
+        <div className="text-center">
+          <Trophy aria-hidden="true" className="mx-auto h-16 w-16 text-gold-500" />
           <h2 className="font-display text-2xl font-bold text-text-primary">{attempt ? 'Attempt recorded' : 'Quiz submitted!'}</h2>
           <p className="mt-1 text-sm text-text-muted">{quiz.title}</p>
         </div>
@@ -144,13 +146,67 @@ export function QuizEngine({ quizId }: { quizId: string }) {
               <p className="text-xs text-text-muted">{result.score}/{result.total} points</p>
             </div>
           </div>
-          <div className="divider" />
-          <div className="text-xs text-text-muted">
-            {mcCount} multiple-choice question{mcCount !== 1 ? 's' : ''} auto-graded.
-            Short-answer and file upload questions require instructor review.
-          </div>
+          {aiCount > 0 && (
+            <div className="divider" />
+          )}
+          {aiCount > 0 && (
+            <p className="text-xs text-text-muted">
+              {aiCount} essay answer{aiCount !== 1 ? 's' : ''} graded by AI.
+            </p>
+          )}
         </div>
-        <Button variant="gold" onClick={() => router.back()}>Return to course</Button>
+
+        {results && results.length > 0 && (
+          <div className="space-y-3">
+            <h3 className="font-display text-lg font-bold text-text-primary">Question review</h3>
+            {results.map((r) => {
+              const letter = LETTER_COLORS[r.correct ? 'B+' : 'F'] ?? LETTER_COLORS.F;
+              return (
+                <div key={r.questionId} className="panel space-y-2 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-sm font-semibold text-text-primary">{r.question}</p>
+                    <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-xs font-bold', letter)}>
+                      {r.earned}/{r.points}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-xs">
+                    {r.correct ? (
+                      <>
+                        <CheckCircle2 aria-hidden="true" className="h-3.5 w-3.5 text-emerald-600" />
+                        <span className="text-emerald-700 dark:text-emerald-400">Correct</span>
+                      </>
+                    ) : (
+                      <>
+                        <XCircle aria-hidden="true" className="h-3.5 w-3.5 text-red-500" />
+                        <span className="text-red-600 dark:text-red-400">Incorrect</span>
+                      </>
+                    )}
+                    {r.aiGraded && (
+                      <Badge variant="neutral">AI graded</Badge>
+                    )}
+                  </div>
+                  {r.yourAnswer && (
+                    <p className="text-xs text-text-muted">
+                      <span className="font-semibold text-text-primary">Your answer:</span> {r.yourAnswer}
+                    </p>
+                  )}
+                  {!r.correct && r.correctAnswer && r.type !== 'essay' && (
+                    <p className="text-xs text-text-muted">
+                      <span className="font-semibold text-emerald-700 dark:text-emerald-400">Correct answer:</span> {r.correctAnswer}
+                    </p>
+                  )}
+                  {r.feedback && (
+                    <p className="rounded-lg bg-line-soft px-3 py-2 text-xs text-text-primary">{r.feedback}</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="text-center">
+          <Button variant="gold" onClick={() => router.back()}>Return to course</Button>
+        </div>
       </div>
     );
   }
@@ -218,6 +274,47 @@ export function QuizEngine({ quizId }: { quizId: string }) {
                 <span className="text-sm text-text-primary">{option}</span>
               </label>
             ))}
+          </div>
+        )}
+
+        {question.type === 'true-false' && (
+          <div className="grid grid-cols-2 gap-2">
+            {['True', 'False'].map((option) => (
+              <label
+                key={option}
+                className={cn(
+                  'flex cursor-pointer items-center gap-3 rounded-lg border px-4 py-3 transition-colors hover:bg-line-soft',
+                  answers[question.id] === option
+                    ? 'border-gold-500 bg-gold-500/10 dark:bg-gold-500/15'
+                    : 'border-line',
+                )}
+              >
+                <input
+                  type="radio"
+                  name={question.id}
+                  value={option}
+                  checked={answers[question.id] === option}
+                  onChange={(e) => handleSetAnswer(question.id, e.target.value)}
+                  className="h-4 w-4 accent-gold-600"
+                />
+                <span className="text-sm text-text-primary">{option}</span>
+              </label>
+            ))}
+          </div>
+        )}
+
+        {question.type === 'essay' && (
+          <div>
+            <label htmlFor={`essay-${question.id}`} className="label">Your answer</label>
+            <textarea
+              id={`essay-${question.id}`}
+              rows={7}
+              value={answers[question.id] ?? ''}
+              onChange={(e) => handleSetAnswer(question.id, e.target.value)}
+              className="input !py-2"
+              placeholder="Write your response in detail..."
+            />
+            <p className="mt-1.5 text-xs text-text-muted">You have {question.points} points for this question.</p>
           </div>
         )}
 

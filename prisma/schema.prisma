@@ -629,17 +629,18 @@ model Quiz {
 }
 
 model QuizAttempt {
-  id          String   @id @default(cuid())
-  quizId      String
-  userId      String
-  answersJson Json
-  score       Int
-  totalPoints Int
-  percentage  Float
-  letterGrade String
-  startedAt   DateTime @default(now())
-  submittedAt DateTime @default(now())
-  autoGraded  Boolean  @default(true)
+  id                 String   @id @default(cuid())
+  quizId             String
+  userId             String
+  answersJson        Json
+  score              Int
+  totalPoints        Int
+  percentage         Float
+  letterGrade        String
+  questionResultsJson Json   @default("[]")
+  startedAt          DateTime @default(now())
+  submittedAt        DateTime @default(now())
+  autoGraded         Boolean  @default(true)
 
   quiz Quiz @relation(fields: [quizId], references: [id], onDelete: Cascade)
   user User @relation("UserQuizzes", fields: [userId], references: [id], onDelete: Cascade)

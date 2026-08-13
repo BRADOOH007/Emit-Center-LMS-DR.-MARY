@@ -13,6 +13,7 @@ import {
   Megaphone,
   Settings,
   ShieldCheck,
+  Sparkles,
   Users,
   UserRound,
   type LucideIcon,
@@ -59,6 +60,7 @@ export const SIDEBAR_NAV: Record<Role, NavSection[]> = {
       title: 'System',
       items: [
         { label: 'Permissions', href: '/dashboard/admin/permissions', icon: ShieldCheck },
+        { label: 'AI Tools', href: '/dashboard/admin/ai', icon: Sparkles },
         { label: 'Settings', href: '/dashboard/admin/settings', icon: Settings },
       ],
     },
@@ -101,6 +103,7 @@ export const SIDEBAR_NAV: Record<Role, NavSection[]> = {
       items: [
         { label: 'My Classes', href: '/dashboard/instructor/classes', icon: CalendarDays },
         { label: 'My Courses', href: '/dashboard/instructor/courses', icon: BookOpen },
+        { label: 'Exams & Assessments', href: '/dashboard/instructor/assessments', icon: ClipboardList },
         { label: 'Student Roster', href: '/dashboard/instructor/roster', icon: UserRound },
         { label: 'Grades', href: '/dashboard/instructor/grades', icon: ClipboardList },
       ],

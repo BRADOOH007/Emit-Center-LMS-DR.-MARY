@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import type { User } from '@/types';
 import { AppProviders } from '@/components/providers/AppProviders';
+import { AITutorProvider } from '@/components/ai/ai-tutor-provider';
 import { ReturnToPortalBar } from '@/components/layout/ReturnToPortalBar';
 import { HeaderNav } from '@/components/layout/HeaderNav';
 import { MobileDrawer } from '@/components/layout/MobileDrawer';
@@ -40,35 +41,37 @@ export function AppLayout({ user, children }: { user: User; children: ReactNode 
 
   return (
     <AppProviders user={user}>
-      <div className="min-h-screen bg-base">
-        <a href="#main-content" className="skip-link">
-          Skip to main content
-        </a>
+      <AITutorProvider>
+        <div className="min-h-screen bg-base">
+          <a href="#main-content" className="skip-link">
+            Skip to main content
+          </a>
 
-        <ReturnToPortalBar />
+          <ReturnToPortalBar />
 
-        <HeaderNav onOpenDrawer={handleOpenDrawer} onSignOut={handleSignOut} />
+          <HeaderNav onOpenDrawer={handleOpenDrawer} onSignOut={handleSignOut} />
 
-        <MobileDrawer
-          open={mobileDrawerOpen}
-          role={user.activeRole}
-          user={user}
-          onClose={handleCloseDrawer}
-          onSignOut={handleSignOut}
-        />
-
-        <div className="flex">
-          <Sidebar
+          <MobileDrawer
+            open={mobileDrawerOpen}
             role={user.activeRole}
-            collapsed={sidebarCollapsed}
-            onToggleCollapse={handleToggleCollapse}
+            user={user}
+            onClose={handleCloseDrawer}
+            onSignOut={handleSignOut}
           />
 
-          <main id="main-content" className="min-w-0 flex-1 overflow-x-hidden">
-            <div className="mx-auto max-w-[1400px] p-4 md:p-6 lg:p-8">{children}</div>
-          </main>
+          <div className="flex">
+            <Sidebar
+              role={user.activeRole}
+              collapsed={sidebarCollapsed}
+              onToggleCollapse={handleToggleCollapse}
+            />
+
+            <main id="main-content" className="min-w-0 flex-1 overflow-x-hidden">
+              <div className="mx-auto max-w-[1400px] p-4 md:p-6 lg:p-8">{children}</div>
+            </main>
+          </div>
         </div>
-      </div>
+      </AITutorProvider>
     </AppProviders>
   );
 }

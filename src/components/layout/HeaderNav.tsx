@@ -2,13 +2,15 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { Menu, Moon, Sun } from 'lucide-react';
+import { Menu, Moon, Sparkles, Sun } from 'lucide-react';
 import { useSession, useTheme } from '@/components/providers/AppProviders';
 import { ProfileDropdown } from '@/components/layout/ProfileDropdown';
+import { useAITutor } from '@/components/ai/ai-tutor-provider';
 
 export function HeaderNav({ onOpenDrawer, onSignOut }: { onOpenDrawer: () => void; onSignOut?: () => void }) {
   const { user } = useSession();
   const { theme, toggleTheme } = useTheme();
+  const { openAITutor } = useAITutor();
 
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-base-elevated/90 backdrop-blur-md">
@@ -41,6 +43,16 @@ export function HeaderNav({ onOpenDrawer, onSignOut }: { onOpenDrawer: () => voi
         </Link>
 
         <div className="ml-auto flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => openAITutor()}
+            aria-label="Open Emit Tutor Bot"
+            title="Emit Tutor Bot"
+            className="btn btn-gold btn-md !px-3"
+          >
+            <Sparkles aria-hidden="true" className="h-4 w-4" />
+            <span className="hidden md:inline">Emit Tutor</span>
+          </button>
           <button
             type="button"
             onClick={toggleTheme}

@@ -290,7 +290,7 @@ export interface ChatMessage {
   timestamp: string;
 }
 
-export type QuizQuestionType = 'multiple-choice' | 'short-answer' | 'file-upload' | 'rubric';
+export type QuizQuestionType = 'multiple-choice' | 'true-false' | 'short-answer' | 'essay' | 'file-upload' | 'rubric';
 export type LetterGrade = 'A+' | 'A' | 'A-' | 'B+' | 'B' | 'B-' | 'C+' | 'C' | 'C-' | 'D' | 'F' | 'INC';
 
 export interface QuizQuestion {
@@ -299,8 +299,23 @@ export interface QuizQuestion {
   type: QuizQuestionType;
   options?: string[];
   correctAnswer?: string;
+  modelAnswer?: string;
   points: number;
   required: boolean;
+}
+
+export interface QuizQuestionResult {
+  questionId: string;
+  type: QuizQuestionType;
+  question: string;
+  points: number;
+  earned: number;
+  yourAnswer?: string;
+  correctAnswer?: string;
+  modelAnswer?: string;
+  feedback?: string;
+  correct: boolean;
+  aiGraded: boolean;
 }
 
 export interface Quiz {
@@ -324,6 +339,7 @@ export interface QuizAttempt {
   totalPoints: number;
   percentage: number;
   letterGrade: LetterGrade;
+  questionResults?: QuizQuestionResult[];
   startedAt: string;
   submittedAt: string;
   autoGraded: boolean;

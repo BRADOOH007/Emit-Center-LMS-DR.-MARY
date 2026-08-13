@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { MoreHorizontal, Search, ShieldCheck, Users } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -169,11 +170,13 @@ export function AdminUsers({ scope }: { scope?: Role }) {
       header: 'User',
       render: (user) => (
         <div className="flex items-center gap-3">
-          <UserAvatar name={user.name} size="sm" />
-          <div className="min-w-0">
-            <p className="truncate font-medium text-text-primary">{user.fullName}</p>
-            <p className="truncate text-xs text-text-muted">{user.email}</p>
-          </div>
+          <Link href={`/dashboard/admin/users/${user.id}`} className="flex items-center gap-3 transition-opacity hover:opacity-80">
+            <UserAvatar name={user.fullName} size="sm" />
+            <div className="min-w-0">
+              <p className="truncate font-medium text-text-primary hover:text-gold-600 dark:hover:text-gold-400">{user.fullName}</p>
+              <p className="truncate text-xs text-text-muted">{user.email}</p>
+            </div>
+          </Link>
         </div>
       ),
     },
@@ -215,6 +218,13 @@ export function AdminUsers({ scope }: { scope?: Role }) {
           </Button>
           {menuFor === user.id && (
             <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-lg border border-line bg-base-surface p-1 shadow-lg">
+              <Link
+                href={`/dashboard/admin/users/${user.id}`}
+                onClick={() => setMenuFor(null)}
+                className="block w-full rounded-md px-3 py-1.5 text-left text-sm text-text-primary transition-colors hover:bg-line-soft"
+              >
+                View profile
+              </Link>
               {['Reset password', 'Change role', 'Deactivate'].map((action) => (
                 <button
                   key={action}
