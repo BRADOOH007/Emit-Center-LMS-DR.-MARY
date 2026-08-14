@@ -22,7 +22,20 @@ interface ThreadRow {
   unread: number;
 }
 
-export function MessagingInbox({ userId }: { userId: string }) {
+function isAdminRole(roles: string[]): boolean {
+  return roles.includes('super_admin') || roles.includes('administrator');
+}
+
+function canMessage(senderRoles: string[], receiverRoles: string[]): boolean {
+  if (isAdminRole(senderRoles)) return true;
+  const allowed: string[] = ['super_admin', 'administrator'];
+  if (senderRoles.includes('instructor')) allowed.push('student', 'parent');
+  if (senderRoles.includes('student')) allowed.push('instructor', 'parent');
+  if (senderRoles.includes('parent')) allowed.push('instructor');
+  return receiverRoles.some((r) => allowed.includes(r));
+}
+
+export function MessagingInbox({ userId, roles = ['student'] }: { userId: string; roles?: string[] }) {
   const [search, setSearch] = useState('');
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
@@ -176,6 +189,7 @@ export function MessagingInbox({ userId }: { userId: string }) {
       {composerOpen && (
         <MessageComposer
           userId={userId}
+          roles={roles}
           participants={threadParticipants}
           onClose={() => setComposerOpen(false)}
           onSent={() => {
@@ -230,11 +244,13 @@ export function MessagingInbox({ userId }: { userId: string }) {
 
 function MessageComposer({
   userId,
+  roles,
   participants,
   onClose,
   onSent,
 }: {
   userId: string;
+  roles: string[];
   participants: { id: string; fullName: string; email: string }[];
   onClose: () => void;
   onSent: () => void;
@@ -277,10 +293,8 @@ function MessageComposer({
         } as User);
       }
     });
-    return Array.from(map.values()).filter(
-      (u) => u.id !== userId && (u.roles.includes('instructor') || u.roles.includes('parent')),
-    );
-  }, [users, participants, userId]);
+    return Array.from(map.values()).filter((u) => u.id !== userId && canMessage(roles, u.roles));
+  }, [users, participants, userId, roles]);
 
   const handleSend = async () => {
     if (!receiver || !subject.trim() || !content.trim()) return;

@@ -39,9 +39,7 @@ function mapUser(row: {
 
 export async function GET(request: NextRequest) {
   const me = await getSessionUser();
-  if (!me || (!me.roles.includes('administrator') && !me.roles.includes('super_admin'))) {
-    return forbid('Only administrators can list users');
-  }
+  if (!me) return forbid('Sign in required');
 
   const { searchParams } = request.nextUrl;
   const role = searchParams.get('role');
