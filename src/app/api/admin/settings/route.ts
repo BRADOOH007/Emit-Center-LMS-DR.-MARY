@@ -1,9 +1,10 @@
 import { NextRequest } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { ok, badRequest, forbid, parseBody } from '@/lib/api-helpers';
 import { getSessionUser } from '@/lib/auth';
 import { isAdminRole, writeAuditLog } from '@/lib/security';
-import { PAYMENT_CONFIG_KEY, type PaymentConfig } from '@/lib/payment-config';
+import { PAYMENT_CONFIG_KEY, redactSecret, isRedacted, type PaymentConfig } from '@/lib/payment-config';
 
 export async function GET() {
   const me = await getSessionUser();
@@ -15,9 +16,15 @@ export async function GET() {
 
   const config: PaymentConfig = {
     stripePublishableKey: raw?.stripePublishableKey ?? (process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? ''),
-    stripeSecretKeyConfigured: raw?.stripeSecretKeyConfigured ?? Boolean(process.env.STRIPE_SECRET_KEY),
+    stripeSecretKey: redactSecret(raw?.stripeSecretKey ?? process.env.STRIPE_SECRET_KEY ?? ''),
+    stripeSecretKeyConfigured: Boolean(raw?.stripeSecretKey ?? process.env.STRIPE_SECRET_KEY),
     baseCurrency: raw?.baseCurrency ?? 'USD',
     demoMode: raw?.demoMode ?? true,
+    paymentGateway: raw?.paymentGateway ?? 'stripe',
+    paypalClientId: raw?.paypalClientId ?? '',
+    paypalClientSecret: redactSecret(raw?.paypalClientSecret ?? ''),
+    paypalEnvironment: raw?.paypalEnvironment ?? 'sandbox',
+    paypalEnabled: raw?.paypalEnabled ?? false,
     promoCodes: raw?.promoCodes ?? {},
   };
 
@@ -34,6 +41,11 @@ export async function PUT(request: NextRequest) {
     stripeSecretKey?: string;
     baseCurrency?: string;
     demoMode?: boolean;
+    paymentGateway?: 'stripe' | 'paypal';
+    paypalClientId?: string;
+    paypalClientSecret?: string;
+    paypalEnvironment?: 'sandbox' | 'live';
+    paypalEnabled?: boolean;
     promoCodes?: Record<string, { discountPercent: number; maxUses: number }>;
   }>(request).catch(() => null);
 
@@ -45,26 +57,36 @@ export async function PUT(request: NextRequest) {
   const next: PaymentConfig = {
     stripePublishableKey:
       (body.stripePublishableKey ?? prev.stripePublishableKey ?? process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? '').trim(),
-    stripeSecretKeyConfigured: body.stripeSecretKey
-      ? Boolean(body.stripeSecretKey.trim()) || (prev.stripeSecretKeyConfigured ?? false)
-      : (prev.stripeSecretKeyConfigured ?? Boolean(process.env.STRIPE_SECRET_KEY)),
+    stripeSecretKey: prev.stripeSecretKey ?? process.env.STRIPE_SECRET_KEY ?? '',
+    stripeSecretKeyConfigured: Boolean(prev.stripeSecretKey ?? process.env.STRIPE_SECRET_KEY),
     baseCurrency: (body.baseCurrency ?? prev.baseCurrency ?? 'USD').toUpperCase(),
     demoMode: body.demoMode ?? prev.demoMode ?? true,
+    paymentGateway: body.paymentGateway ?? prev.paymentGateway ?? 'stripe',
+    paypalClientId: (body.paypalClientId ?? prev.paypalClientId ?? '').trim(),
+    paypalClientSecret: prev.paypalClientSecret ?? '',
+    paypalEnvironment: body.paypalEnvironment ?? prev.paypalEnvironment ?? 'sandbox',
+    paypalEnabled: body.paypalEnabled ?? prev.paypalEnabled ?? false,
     promoCodes: body.promoCodes ?? prev.promoCodes ?? {},
   };
 
-  if (body.stripeSecretKey?.trim()) {
-    // Store a marker only. The raw secret must live in the environment so it is
-    // never exposed to the client. If a new key is supplied we write it to env
-    // for the current process and flag that it must be persisted by the operator.
+  if (body.stripeSecretKey?.trim() && !isRedacted(body.stripeSecretKey)) {
+    next.stripeSecretKey = body.stripeSecretKey.trim();
     next.stripeSecretKeyConfigured = true;
     process.env.STRIPE_SECRET_KEY = body.stripeSecretKey.trim();
+  }
+  if (body.stripePublishableKey?.trim()) {
+    next.stripePublishableKey = body.stripePublishableKey.trim();
+  }
+  if (body.paypalClientId?.trim()) next.paypalClientId = body.paypalClientId.trim();
+  if (body.paypalClientSecret?.trim() && !isRedacted(body.paypalClientSecret)) {
+    next.paypalClientSecret = body.paypalClientSecret.trim();
+    next.paypalEnabled = true;
   }
 
   await prisma.appSetting.upsert({
     where: { key: PAYMENT_CONFIG_KEY },
-    update: { value: next as object },
-    create: { key: PAYMENT_CONFIG_KEY, value: next as object },
+    update: { value: next as unknown as Prisma.InputJsonValue },
+    create: { key: PAYMENT_CONFIG_KEY, value: next as unknown as Prisma.InputJsonValue },
   });
 
   await writeAuditLog({
@@ -74,5 +96,10 @@ export async function PUT(request: NextRequest) {
     resourceId: PAYMENT_CONFIG_KEY,
   });
 
-  return ok(next);
+  const safe: PaymentConfig = {
+    ...next,
+    stripeSecretKey: redactSecret(next.stripeSecretKey),
+    paypalClientSecret: redactSecret(next.paypalClientSecret),
+  };
+  return ok(safe);
 }

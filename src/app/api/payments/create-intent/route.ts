@@ -4,11 +4,12 @@ import { prisma } from '@/lib/prisma';
 import { ok, badRequest, notFound, forbid, serverError, parseBody } from '@/lib/api-helpers';
 import { getSessionUser } from '@/lib/auth';
 import { isRateLimited, writeAuditLog } from '@/lib/security';
+import { getPaymentConfigServer } from '@/lib/payment-config';
 import type { SupportedCurrency } from '@/types';
 
-function getStripeConfig(): { publishableKey: string; secretKey: string } | null {
-  const publishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
-  const secretKey = process.env.STRIPE_SECRET_KEY;
+function getStripeConfig(config: { stripePublishableKey: string; stripeSecretKey: string }): { publishableKey: string; secretKey: string } | null {
+  const publishableKey = config.stripePublishableKey;
+  const secretKey = config.stripeSecretKey;
   if (!publishableKey || !secretKey) return null;
   if (!publishableKey.startsWith('pk_') || !secretKey.startsWith('sk_')) return null;
   return { publishableKey, secretKey };
@@ -61,14 +62,73 @@ export async function POST(request: NextRequest) {
   const promoCodes = paymentConfig?.promoCodes ?? {};
   const demoMode = paymentConfig?.demoMode ?? true;
 
+  const fullConfig = await getPaymentConfigServer();
+
   const discountPercent = applyPromo(body.promoCode, promoCodes, {});
   const discountedAmount = Math.round(price.amount * (1 - discountPercent / 100));
   const promoApplied = discountPercent > 0 ? body.promoCode?.toUpperCase() : null;
 
   // Only accept currencies the platform is configured for; default to USD pricing.
   const currency = body.currency.toLowerCase();
-  const stripe = getStripeConfig();
-  const useRealStripe = !demoMode && !!stripe;
+  const stripe = getStripeConfig(fullConfig);
+  const useRealStripe = !demoMode && !!stripe && fullConfig.paymentGateway !== 'paypal';
+  const useRealPayPal = !demoMode && fullConfig.paymentGateway === 'paypal' && fullConfig.paypalEnabled && !!fullConfig.paypalClientId && !!fullConfig.paypalClientSecret;
+
+  if (useRealPayPal) {
+    try {
+      const auth = Buffer.from(`${fullConfig.paypalClientId}:${fullConfig.paypalClientSecret}`).toString('base64');
+      const apiBase = fullConfig.paypalEnvironment === 'live'
+        ? 'https://api-m.paypal.com'
+        : 'https://api-m.sandbox.paypal.com';
+      const tokenRes = await fetch(`${apiBase}/v1/oauth2/token`, {
+        method: 'POST',
+        headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'grant_type=client_credentials',
+      });
+      if (!tokenRes.ok) return serverError('Unable to create payment. Please contact support.');
+      const tokenData = await tokenRes.json();
+      const orderRes = await fetch(`${apiBase}/v2/checkout/orders`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${tokenData.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          intent: 'CAPTURE',
+          purchase_units: [{
+            reference_id: course.id,
+            amount: { currency_code: currency.toUpperCase(), value: (discountedAmount / 100).toFixed(2) },
+            description: course.title.slice(0, 127),
+          }],
+        }),
+      });
+      if (!orderRes.ok) return serverError('Unable to create payment. Please contact support.');
+      const orderData = await orderRes.json();
+
+      await writeAuditLog({
+        userId: me.id,
+        action: 'payment.intent_created',
+        resourceType: 'course',
+        resourceId: course.id,
+      });
+
+      return ok({
+        paymentIntentId: orderData.id,
+        clientSecret: null,
+        amount: discountedAmount,
+        currency,
+        course: { id: course.id, title: course.title },
+        promoApplied,
+        discountPercent,
+        originalAmount: price.amount,
+        demo: false,
+        gateway: 'paypal',
+        approvalUrl: orderData.links?.find((l: { rel: string }) => l.rel === 'approve')?.href ?? null,
+      });
+    } catch {
+      return serverError('Unable to create payment. Please contact support.');
+    }
+  }
 
   if (useRealStripe) {
     try {
@@ -102,6 +162,7 @@ export async function POST(request: NextRequest) {
         discountPercent,
         originalAmount: price.amount,
         demo: false,
+        gateway: 'stripe',
       });
     } catch {
       return serverError('Unable to create payment. Please contact support.');
@@ -120,5 +181,6 @@ export async function POST(request: NextRequest) {
     discountPercent,
     originalAmount: price.amount,
     demo: true,
+    gateway: 'stripe',
   });
 }

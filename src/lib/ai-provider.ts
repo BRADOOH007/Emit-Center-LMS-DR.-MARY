@@ -132,7 +132,7 @@ export async function callAI(opts: AICallOptions): Promise<AICallResult> {
     temperature = 0.7,
     useReasoner = false,
     usePremium = true,
-    cerebrasModel = process.env.CEREBRAS_MODEL || 'gpt-oss-120b',
+    cerebrasModel = process.env.CEREBRAS_MODEL || 'gemma-4-31b',
     deepseekModel = useReasoner ? 'deepseek-reasoner' : (process.env.DEEPSEEK_MODEL || 'deepseek-chat'),
     geminiModel = process.env.GEMINI_MODEL || 'gemini-2.0-flash',
     groqModel = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',

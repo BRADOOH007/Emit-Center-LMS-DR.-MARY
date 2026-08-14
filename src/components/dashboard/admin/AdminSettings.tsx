@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Bell, CreditCard, Download, Globe, HardDrive, Loader2, Mail, Palette, Plug, RotateCcw, Save, ShieldCheck, Upload } from 'lucide-react';
+import { AlertTriangle, Bell, CreditCard, Download, ExternalLink, Globe, HardDrive, Loader2, Mail, Palette, Plug, RotateCcw, Save, ShieldCheck, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { PageIntro, SectionPanel } from '@/components/dashboard/primitives';
 import { useSession, useTheme } from '@/components/providers/AppProviders';
@@ -12,11 +12,13 @@ interface DeliveryConfig {
   smtpHost: string;
   smtpPort: number;
   smtpUser: string;
+  smtpPass: string;
   smtpFrom: string;
   smtpConfigured: boolean;
   resendApiKey: string;
   sendgridApiKey: string;
   twilioAccountSid: string;
+  twilioAuthToken: string;
   twilioFrom: string;
   twilioConfigured: boolean;
 }
@@ -24,14 +26,21 @@ interface DeliveryConfig {
 interface IntegrationConfig {
   googleWorkspaceEnabled: boolean;
   googleClientId: string;
+  googleClientSecret: string;
   microsoftEnabled: boolean;
   microsoftClientId: string;
   microsoftTenantId: string;
+  microsoftClientSecret: string;
   ssoEnabled: boolean;
   ssoProvider: string;
   ssoIssuerUrl: string;
+  ssoClientId: string;
+  ssoClientSecret: string;
   zoomEnabled: boolean;
   zoomClientId: string;
+  zoomClientSecret: string;
+  zoomVerificationToken: string;
+  zoomWebhookSecret: string;
 }
 
 const DEFAULT_FORM = {
@@ -54,9 +63,15 @@ const DEFAULT_EMAIL_TOGGLES = {
 
 const EMPTY_PAYMENT: PaymentConfig = {
   stripePublishableKey: '',
+  stripeSecretKey: '',
   stripeSecretKeyConfigured: false,
   baseCurrency: 'USD',
   demoMode: true,
+  paymentGateway: 'stripe',
+  paypalClientId: '',
+  paypalClientSecret: '',
+  paypalEnvironment: 'sandbox',
+  paypalEnabled: false,
   promoCodes: {},
 };
 
@@ -65,6 +80,7 @@ export function AdminSettings() {
   const { user } = useSession();
   const toast = useToast();
   const isSuperAdmin = user.roles.includes('super_admin');
+  const isAdmin = user.roles.some((r) => r === 'super_admin' || r === 'administrator');
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
 
@@ -79,11 +95,13 @@ export function AdminSettings() {
     smtpHost: '',
     smtpPort: 587,
     smtpUser: '',
+    smtpPass: '',
     smtpFrom: '',
     smtpConfigured: false,
     resendApiKey: '',
     sendgridApiKey: '',
     twilioAccountSid: '',
+    twilioAuthToken: '',
     twilioFrom: '',
     twilioConfigured: false,
   });
@@ -93,14 +111,21 @@ export function AdminSettings() {
   const [integrations, setIntegrations] = useState<IntegrationConfig>({
     googleWorkspaceEnabled: false,
     googleClientId: '',
+    googleClientSecret: '',
     microsoftEnabled: false,
     microsoftClientId: '',
     microsoftTenantId: 'common',
+    microsoftClientSecret: '',
     ssoEnabled: false,
     ssoProvider: 'oidc',
     ssoIssuerUrl: '',
+    ssoClientId: '',
+    ssoClientSecret: '',
     zoomEnabled: false,
     zoomClientId: '',
+    zoomClientSecret: '',
+    zoomVerificationToken: '',
+    zoomWebhookSecret: '',
   });
   const [integrationsSaved, setIntegrationsSaved] = useState(false);
   const [integrationsSaving, setIntegrationsSaving] = useState(false);
@@ -287,6 +312,11 @@ export function AdminSettings() {
           stripeSecretKey: newSecretKey,
           baseCurrency: payment.baseCurrency,
           demoMode: payment.demoMode,
+          paymentGateway: payment.paymentGateway,
+          paypalClientId: payment.paypalClientId,
+          paypalClientSecret: payment.paypalClientSecret,
+          paypalEnvironment: payment.paypalEnvironment,
+          paypalEnabled: payment.paypalEnabled,
           promoCodes: payment.promoCodes,
         }),
       });
@@ -295,7 +325,12 @@ export function AdminSettings() {
         setError(json.error ?? 'Failed to save settings.');
         return;
       }
-      setPayment({ ...json.data, stripeSecretKeyConfigured: json.data.stripeSecretKeyConfigured || Boolean(newSecretKey) });
+      setPayment({
+        ...json.data,
+        stripeSecretKeyConfigured: json.data.stripeSecretKeyConfigured || Boolean(newSecretKey),
+        stripeSecretKey: json.data.stripeSecretKey || '',
+        paypalClientSecret: json.data.paypalClientSecret || payment.paypalClientSecret,
+      });
       setNewSecretKey('');
       setSaved(true);
       window.setTimeout(() => setSaved(false), 2000);
@@ -399,7 +434,17 @@ export function AdminSettings() {
             </div>
 
             <div>
-              <label className="label" htmlFor="stripePublishableKey">Stripe publishable key (pk_...)</label>
+              <div className="mb-1 flex items-center justify-between">
+                <label className="label" htmlFor="stripePublishableKey">Stripe publishable key (pk_...)</label>
+                <a
+                  href="https://dashboard.stripe.com/apikeys"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-gold-700 hover:text-gold-800 dark:text-gold-300"
+                >
+                  Get key <ExternalLink className="h-3 w-3" />
+                </a>
+              </div>
               <input
                 id="stripePublishableKey"
                 className="input font-mono text-xs"
@@ -447,8 +492,72 @@ export function AdminSettings() {
                   onChange={(e) => setPayment((prev) => ({ ...prev, demoMode: e.target.value === 'demo' }))}
                 >
                   <option value="demo">Demo (sandbox, no charge)</option>
-                  <option value="live">Live (real Stripe charges)</option>
+                  <option value="live">Live (real Stripe/PayPal charges)</option>
                 </select>
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="label" htmlFor="paymentGateway">Payment gateway</label>
+                <select
+                  id="paymentGateway"
+                  className="input"
+                  value={payment.paymentGateway}
+                  onChange={(e) => setPayment((prev) => ({ ...prev, paymentGateway: e.target.value as 'stripe' | 'paypal' }))}
+                >
+                  <option value="stripe">Stripe</option>
+                  <option value="paypal">PayPal</option>
+                </select>
+              </div>
+              <div>
+                <label className="label" htmlFor="paypalEnvironment">PayPal environment</label>
+                <select
+                  id="paypalEnvironment"
+                  className="input"
+                  value={payment.paypalEnvironment}
+                  onChange={(e) => setPayment((prev) => ({ ...prev, paypalEnvironment: e.target.value as 'sandbox' | 'live' }))}
+                >
+                  <option value="sandbox">Sandbox (test)</option>
+                  <option value="live">Live</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-line bg-line-soft/40 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-sm font-semibold text-text-primary">PayPal credentials</span>
+                <a
+                  href="https://developer.paypal.com/dashboard/applications"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-gold-700 hover:text-gold-800 dark:text-gold-300"
+                >
+                  Get keys <ExternalLink className="h-3 w-3" />
+                </a>
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <label className="label" htmlFor="paypalClientId">Client ID</label>
+                  <input
+                    id="paypalClientId"
+                    className="input font-mono text-xs"
+                    placeholder="Axxxxxxxxxxxxxxxx..."
+                    value={payment.paypalClientId}
+                    onChange={(e) => setPayment((prev) => ({ ...prev, paypalClientId: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="label" htmlFor="paypalClientSecret">Client secret</label>
+                  <input
+                    id="paypalClientSecret"
+                    type="password"
+                    className="input font-mono text-xs"
+                    placeholder={payment.paypalClientSecret ? '•••••••••••• (configured — leave blank to keep)' : 'Exxxxxxxxxxxxxxxx...'}
+                    value={payment.paypalClientSecret}
+                    onChange={(e) => setPayment((prev) => ({ ...prev, paypalClientSecret: e.target.value }))}
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -530,15 +639,33 @@ export function AdminSettings() {
                 <input id="smtpUser" className="input" value={delivery.smtpUser} onChange={(e) => setDelivery((p) => ({ ...p, smtpUser: e.target.value }))} />
               </div>
               <div>
+                <label className="label" htmlFor="smtpPass">SMTP password</label>
+                <input id="smtpPass" type="password" className="input font-mono text-xs" value={delivery.smtpPass} onChange={(e) => setDelivery((p) => ({ ...p, smtpPass: e.target.value }))} placeholder={delivery.smtpConfigured ? '•••••••• (configured — leave blank to keep)' : 'SMTP password'} />
+              </div>
+              <div className="sm:col-span-2">
                 <label className="label" htmlFor="smtpFrom">From address</label>
                 <input id="smtpFrom" className="input" value={delivery.smtpFrom} onChange={(e) => setDelivery((p) => ({ ...p, smtpFrom: e.target.value }))} placeholder="no-reply@emitcenter.com" />
               </div>
               <div>
-                <label className="label" htmlFor="resendKey">Resend API key</label>
+                <label className="label" htmlFor="resendKey">
+                  <span className="flex items-center gap-1.5">
+                    Resend API key
+                    <a href="https://resend.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-gold-600 hover:underline dark:text-gold-400">
+                      Get key →
+                    </a>
+                  </span>
+                </label>
                 <input id="resendKey" type="password" className="input font-mono text-xs" value={delivery.resendApiKey} onChange={(e) => setDelivery((p) => ({ ...p, resendApiKey: e.target.value }))} placeholder="re_..." />
               </div>
               <div>
-                <label className="label" htmlFor="sendgridKey">SendGrid API key</label>
+                <label className="label" htmlFor="sendgridKey">
+                  <span className="flex items-center gap-1.5">
+                    SendGrid API key
+                    <a href="https://app.sendgrid.com/settings/api_keys" target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-gold-600 hover:underline dark:text-gold-400">
+                      Get key →
+                    </a>
+                  </span>
+                </label>
                 <input id="sendgridKey" type="password" className="input font-mono text-xs" value={delivery.sendgridApiKey} onChange={(e) => setDelivery((p) => ({ ...p, sendgridApiKey: e.target.value }))} placeholder="SG.xxx" />
               </div>
               <div>
@@ -546,6 +673,17 @@ export function AdminSettings() {
                 <input id="twilioSid" className="input font-mono text-xs" value={delivery.twilioAccountSid} onChange={(e) => setDelivery((p) => ({ ...p, twilioAccountSid: e.target.value }))} placeholder="AC..." />
               </div>
               <div>
+                <label className="label" htmlFor="twilioToken">
+                  <span className="flex items-center gap-1.5">
+                    Twilio Auth Token
+                    <a href="https://console.twilio.com" target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-gold-600 hover:underline dark:text-gold-400">
+                      Get token →
+                    </a>
+                  </span>
+                </label>
+                <input id="twilioToken" type="password" className="input font-mono text-xs" value={delivery.twilioAuthToken} onChange={(e) => setDelivery((p) => ({ ...p, twilioAuthToken: e.target.value }))} placeholder={delivery.twilioConfigured ? '•••••••• (configured — leave blank to keep)' : 'Auth token'} />
+              </div>
+              <div className="sm:col-span-2">
                 <label className="label" htmlFor="twilioFrom">Twilio from number</label>
                 <input id="twilioFrom" className="input font-mono text-xs" value={delivery.twilioFrom} onChange={(e) => setDelivery((p) => ({ ...p, twilioFrom: e.target.value }))} placeholder="+15551234567" />
               </div>
@@ -566,13 +704,29 @@ export function AdminSettings() {
             <div className="space-y-3">
               <IntegrationToggle label="Google Workspace" checked={integrations.googleWorkspaceEnabled} onChange={(v) => setIntegrations((p) => ({ ...p, googleWorkspaceEnabled: v }))} />
               {integrations.googleWorkspaceEnabled && (
-                <input className="input font-mono text-xs" placeholder="Google OAuth Client ID" value={integrations.googleClientId} onChange={(e) => setIntegrations((p) => ({ ...p, googleClientId: e.target.value }))} />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <input className="input font-mono text-xs" placeholder="Google OAuth Client ID" value={integrations.googleClientId} onChange={(e) => setIntegrations((p) => ({ ...p, googleClientId: e.target.value }))} />
+                  <input type="password" className="input font-mono text-xs" placeholder={integrations.googleClientSecret ? '•••••••• (configured — leave blank to keep)' : 'Google Client Secret'} value={integrations.googleClientSecret} onChange={(e) => setIntegrations((p) => ({ ...p, googleClientSecret: e.target.value }))} />
+                  <span className="text-xs text-text-muted sm:col-span-2">
+                    Create OAuth credentials at{' '}
+                    <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" className="font-medium text-gold-600 hover:underline dark:text-gold-400">
+                      Google Cloud Console
+                    </a>
+                  </span>
+                </div>
               )}
               <IntegrationToggle label="Microsoft 365" checked={integrations.microsoftEnabled} onChange={(v) => setIntegrations((p) => ({ ...p, microsoftEnabled: v }))} />
               {integrations.microsoftEnabled && (
                 <div className="grid gap-3 sm:grid-cols-2">
                   <input className="input font-mono text-xs" placeholder="Microsoft Client ID" value={integrations.microsoftClientId} onChange={(e) => setIntegrations((p) => ({ ...p, microsoftClientId: e.target.value }))} />
                   <input className="input font-mono text-xs" placeholder="Tenant ID (or 'common')" value={integrations.microsoftTenantId} onChange={(e) => setIntegrations((p) => ({ ...p, microsoftTenantId: e.target.value }))} />
+                  <input type="password" className="input font-mono text-xs" placeholder={integrations.microsoftClientSecret ? '•••••••• (configured — leave blank to keep)' : 'Microsoft Client Secret'} value={integrations.microsoftClientSecret} onChange={(e) => setIntegrations((p) => ({ ...p, microsoftClientSecret: e.target.value }))} />
+                  <span className="text-xs text-text-muted sm:col-span-2">
+                    Register an app at{' '}
+                    <a href="https://entra.microsoft.com" target="_blank" rel="noopener noreferrer" className="font-medium text-gold-600 hover:underline dark:text-gold-400">
+                      Microsoft Entra admin center
+                    </a>
+                  </span>
                 </div>
               )}
               <IntegrationToggle label="Single Sign-On (SSO / OIDC)" checked={integrations.ssoEnabled} onChange={(v) => setIntegrations((p) => ({ ...p, ssoEnabled: v }))} />
@@ -585,11 +739,24 @@ export function AdminSettings() {
                     <option value="azure">Microsoft Entra ID</option>
                     <option value="google">Google Workspace</option>
                   </select>
+                  <input className="input font-mono text-xs" placeholder="SSO Client ID" value={integrations.ssoClientId} onChange={(e) => setIntegrations((p) => ({ ...p, ssoClientId: e.target.value }))} />
+                  <input type="password" className="input font-mono text-xs" placeholder={integrations.ssoClientSecret ? '•••••••• (configured — leave blank to keep)' : 'SSO Client Secret'} value={integrations.ssoClientSecret} onChange={(e) => setIntegrations((p) => ({ ...p, ssoClientSecret: e.target.value }))} />
                 </div>
               )}
               <IntegrationToggle label="Zoom (live sessions)" checked={integrations.zoomEnabled} onChange={(v) => setIntegrations((p) => ({ ...p, zoomEnabled: v }))} />
               {integrations.zoomEnabled && (
-                <input className="input font-mono text-xs" placeholder="Zoom Client ID" value={integrations.zoomClientId} onChange={(e) => setIntegrations((p) => ({ ...p, zoomClientId: e.target.value }))} />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <input className="input font-mono text-xs" placeholder="Zoom Client ID" value={integrations.zoomClientId} onChange={(e) => setIntegrations((p) => ({ ...p, zoomClientId: e.target.value }))} />
+                  <input type="password" className="input font-mono text-xs" placeholder={integrations.zoomClientSecret ? '•••••••• (configured — leave blank to keep)' : 'Zoom Client Secret'} value={integrations.zoomClientSecret} onChange={(e) => setIntegrations((p) => ({ ...p, zoomClientSecret: e.target.value }))} />
+                  <input className="input font-mono text-xs" placeholder="Verification token (optional)" value={integrations.zoomVerificationToken} onChange={(e) => setIntegrations((p) => ({ ...p, zoomVerificationToken: e.target.value }))} />
+                  <input type="password" className="input font-mono text-xs" placeholder={integrations.zoomWebhookSecret ? '•••••••• (configured — leave blank to keep)' : 'Webhook secret (optional)'} value={integrations.zoomWebhookSecret} onChange={(e) => setIntegrations((p) => ({ ...p, zoomWebhookSecret: e.target.value }))} />
+                  <span className="text-xs text-text-muted sm:col-span-2">
+                    Create a Server-to-Server OAuth app at{' '}
+                    <a href="https://marketplace.zoom.us/develop/apps" target="_blank" rel="noopener noreferrer" className="font-medium text-gold-600 hover:underline dark:text-gold-400">
+                      Zoom Marketplace
+                    </a>
+                  </span>
+                </div>
               )}
             </div>
             <div className="flex items-center gap-2">
@@ -685,7 +852,7 @@ export function AdminSettings() {
         </SectionPanel>
       </div>
 
-      {isSuperAdmin && (
+      {isAdmin && (
         <SectionPanel title="Danger Zone" icon={AlertTriangle}>
           <div className="flex flex-col gap-4">
             <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-4">

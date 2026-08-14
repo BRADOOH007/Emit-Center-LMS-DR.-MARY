@@ -4,10 +4,11 @@ import { prisma } from '@/lib/prisma';
 import { ok, badRequest, notFound, forbid, serverError, parseBody } from '@/lib/api-helpers';
 import { getSessionUser } from '@/lib/auth';
 import { isRateLimited, writeAuditLog } from '@/lib/security';
+import { getPaymentConfigServer } from '@/lib/payment-config';
 
-function getStripeConfig(): { publishableKey: string; secretKey: string } | null {
-  const publishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
-  const secretKey = process.env.STRIPE_SECRET_KEY;
+function getStripeConfig(config: { stripePublishableKey: string; stripeSecretKey: string }): { publishableKey: string; secretKey: string } | null {
+  const publishableKey = config.stripePublishableKey;
+  const secretKey = config.stripeSecretKey;
   if (!publishableKey || !secretKey) return null;
   if (!publishableKey.startsWith('pk_') || !secretKey.startsWith('sk_')) return null;
   return { publishableKey, secretKey };
@@ -43,8 +44,37 @@ export async function POST(request: NextRequest) {
   const demoMode = paymentConfig?.demoMode ?? true;
 
   const isDemoIntent = body.paymentIntentId.startsWith('pi_demo_');
-  const stripe = getStripeConfig();
-  const useRealStripe = !demoMode && !!stripe && !isDemoIntent;
+  const isPayPalOrder = body.paymentIntentId.startsWith('PAYPAL-');
+  const fullConfig = await getPaymentConfigServer();
+  const stripe = isPayPalOrder ? null : getStripeConfig(fullConfig);
+  const useRealStripe = !demoMode && !!stripe && !isDemoIntent && !isPayPalOrder;
+
+  if (isPayPalOrder && !demoMode) {
+    // Verify the PayPal order was approved/captured.
+    try {
+      const auth = Buffer.from(`${fullConfig.paypalClientId}:${fullConfig.paypalClientSecret}`).toString('base64');
+      const apiBase = fullConfig.paypalEnvironment === 'live'
+        ? 'https://api-m.paypal.com'
+        : 'https://api-m.sandbox.paypal.com';
+      const tokenRes = await fetch(`${apiBase}/v1/oauth2/token`, {
+        method: 'POST',
+        headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'grant_type=client_credentials',
+      });
+      if (!tokenRes.ok) return serverError('Unable to verify PayPal payment');
+      const tokenData = await tokenRes.json();
+      const orderRes = await fetch(`${apiBase}/v2/checkout/orders/${body.paymentIntentId}`, {
+        headers: { Authorization: `Bearer ${tokenData.access_token}` },
+      });
+      if (!orderRes.ok) return serverError('Unable to verify PayPal payment');
+      const orderData = await orderRes.json();
+      if (orderData.status !== 'COMPLETED' && orderData.status !== 'APPROVED') {
+        return badRequest('Payment has not been completed yet');
+      }
+    } catch {
+      return serverError('Unable to verify PayPal payment');
+    }
+  }
 
   if (useRealStripe) {
     try {

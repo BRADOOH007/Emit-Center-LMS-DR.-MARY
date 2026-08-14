@@ -191,6 +191,15 @@ const REPLIES = [
   { id: 'rpl_0010', threadId: 'thr_0004', content: 'I love using dict comprehension for quick lookups: {w: len(w) for w in sentence.split()} — maps each word to its length.', isModeratorReply: false, isEndorsed: false, createdAt: '2026-09-14T16:00:00.000Z', authorEmail: 'student@emitcenter.com' },
 ];
 
+const PROGRAMS: { id: string; name: string; slug: string; subject: 'robotics' | 'coding' | 'design' | 'life_skills' | 'engineering' | 'career'; description: string; status: string; startDate: string; endDate: string }[] = [
+  { id: 'prg_0001', name: 'Robotics & Automation', slug: 'robotics-automation', subject: 'robotics', description: 'Build, program, and test robots from Arduino kits to LEGO SPIKE Prime. Hands-on engineering for young makers.', status: 'active', startDate: '2026-09-01T00:00:00.000Z', endDate: '2026-12-31T00:00:00.000Z' },
+  { id: 'prg_0002', name: 'Coding & Web Development', slug: 'coding-web-development', subject: 'coding', description: 'From Python fundamentals to modern React web apps. Project-driven tracks for beginners and beyond.', status: 'active', startDate: '2026-09-01T00:00:00.000Z', endDate: '2026-12-31T00:00:00.000Z' },
+  { id: 'prg_0003', name: 'Design & Digital Media', slug: 'design-digital-media', subject: 'design', description: '3D modeling, digital illustration, and character design using Blender, Photoshop, and Procreate.', status: 'active', startDate: '2026-09-01T00:00:00.000Z', endDate: '2026-12-31T00:00:00.000Z' },
+  { id: 'prg_0004', name: 'Life Skills & Leadership', slug: 'life-skills-leadership', subject: 'life_skills', description: 'Confidence, communication, financial literacy, and leadership for high school students.', status: 'active', startDate: '2026-09-01T00:00:00.000Z', endDate: '2026-12-31T00:00:00.000Z' },
+  { id: 'prg_0005', name: 'STEM & Engineering', slug: 'stem-engineering', subject: 'engineering', description: 'AI/ML foundations and competition preparation across physics, chemistry, biology, and engineering.', status: 'active', startDate: '2026-09-01T00:00:00.000Z', endDate: '2026-12-31T00:00:00.000Z' },
+  { id: 'prg_0006', name: 'Career Exploration', slug: 'career-exploration', subject: 'career', description: 'Resume building, interview practice, digital citizenship, and internships across STEM industries.', status: 'active', startDate: '2026-09-01T00:00:00.000Z', endDate: '2026-12-31T00:00:00.000Z' },
+];
+
 const ROOMS = [
   { id: 'rm_0001', name: 'Lab A — Robotics', building: 'Main Campus', floor: 1, capacity: 16, amenities: ['Workbenches', 'Soldering Stations', 'Projector', 'Sink'], status: 'open' },
   { id: 'rm_0002', name: 'Lab B — Junior Makerspace', building: 'Main Campus', floor: 1, capacity: 12, amenities: ['LEGO Kits', '3D Printer', 'Whiteboard Wall', 'Sink'], status: 'open' },
@@ -235,6 +244,23 @@ async function main() {
       update: { amount: c.usdPrice },
       create: { id: `prc_${c.id}`, courseId: c.id, currency: 'USD', amount: c.usdPrice },
     });
+  }
+
+  const subjectToProgram = new Map<string, string>();
+  for (const p of PROGRAMS) {
+    await prisma.program.upsert({
+      where: { id: p.id },
+      update: { name: p.name, description: p.description, subject: p.subject, status: p.status, startDate: new Date(p.startDate), endDate: new Date(p.endDate) },
+      create: { id: p.id, name: p.name, slug: p.slug, description: p.description, subject: p.subject, status: p.status, startDate: new Date(p.startDate), endDate: new Date(p.endDate) },
+    });
+    subjectToProgram.set(p.subject, p.id);
+  }
+  const dbCourses = await prisma.course.findMany({ select: { id: true, subject: true } });
+  for (const dc of dbCourses) {
+    const programId = subjectToProgram.get(dc.subject);
+    if (programId) {
+      await prisma.course.updateMany({ where: { id: dc.id }, data: { programId } });
+    }
   }
 
   const student = byEmail.get('student@emitcenter.com');

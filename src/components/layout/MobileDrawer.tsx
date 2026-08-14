@@ -65,9 +65,9 @@ export function MobileDrawer({
             <Image
               src="/brand/emit-logo.png"
               alt=""
-              width={36}
-              height={36}
-              className="h-9 w-9 object-contain"
+              width={40}
+              height={40}
+              className="h-10 w-10 object-contain"
             />
             <div>
               <p className="font-display text-sm font-semibold leading-tight text-text-primary">EMIT Center</p>

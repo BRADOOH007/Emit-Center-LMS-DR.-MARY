@@ -2,7 +2,7 @@ import { PrismaClient } from '@prisma/client';
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
-const MAX_ATTEMPTS = 3;
+const MAX_ATTEMPTS = 5;
 const RETRY_DELAY_MS = 1500;
 
 async function runWithRetry<T>(fn: () => Promise<T>): Promise<T> {
@@ -27,13 +27,14 @@ async function runWithRetry<T>(fn: () => Promise<T>): Promise<T> {
 
 function createPrismaClient() {
   const client = new PrismaClient();
-  return client.$extends({
+  const extended = client.$extends({
     query: {
       $allOperations({ args, query }) {
         return runWithRetry(() => query(args));
       },
     },
   });
+  return extended as PrismaClient;
 }
 
 export const prisma = globalForPrisma.prisma ?? createPrismaClient();

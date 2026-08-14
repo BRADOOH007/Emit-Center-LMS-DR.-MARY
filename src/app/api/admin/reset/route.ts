@@ -7,7 +7,9 @@ import { writeAuditLog } from '@/lib/security';
 export async function POST(_req: NextRequest) {
   const me = await getSessionUser();
   if (!me) return forbid('Sign in required');
-  if (!me.roles.includes('super_admin')) return forbid('Super admin access required');
+  if (!me.roles.some((r) => r === 'super_admin' || r === 'administrator')) {
+    return forbid('Administrator access required');
+  }
 
   try {
     const result = await prisma.$transaction(async (tx) => {

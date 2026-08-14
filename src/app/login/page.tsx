@@ -43,13 +43,13 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-base px-4">
       <div className="w-full max-w-md space-y-8">
         <div className="text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-line bg-base-surface shadow-card">
+          <div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-3xl border border-line bg-base-surface shadow-card">
             <Image
               src="/brand/emit-logo.png"
               alt="EMIT Center"
-              width={48}
-              height={48}
-              className="h-12 w-12 object-contain"
+              width={88}
+              height={88}
+              className="h-20 w-20 object-contain"
             />
           </div>
           <h1 className="font-display text-2xl font-bold tracking-tight text-text-primary">

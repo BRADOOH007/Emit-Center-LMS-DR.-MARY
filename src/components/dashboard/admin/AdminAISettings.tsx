@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import {
   Brain,
+  Eye,
+  EyeOff,
   KeyRound,
   Loader2,
   Save,
@@ -15,15 +17,15 @@ import { PageIntro, SectionPanel } from '@/components/dashboard/primitives';
 import type { AIProviderConfig } from '@/lib/ai-settings';
 import Link from 'next/link';
 
-const KEYS: { field: keyof AIProviderConfig; label: string; placeholder: string; help: string }[] = [
-  { field: 'openaiKey', label: 'OpenAI API key', placeholder: 'sk-...', help: 'Used for premium GPT-4o and fallback GPT-4o-mini.' },
-  { field: 'cerebroKey', label: 'Cerebras API key', placeholder: 'csk-...', help: 'Fastest provider (Llama on Cerebras).' },
-  { field: 'deepseekKey', label: 'DeepSeek API key', placeholder: 'sk-...', help: 'Best-quality chat, plus reasoning (R1).' },
-  { field: 'geminiKey', label: 'Google Gemini API key', placeholder: 'AIza...', help: 'Premium Gemini Pro + free Gemini Flash quota.' },
-  { field: 'groqKey', label: 'Groq API key', placeholder: 'gsk_...', help: 'Free, ultra-fast Llama models.' },
-  { field: 'openrouterKey', label: 'OpenRouter API key', placeholder: 'sk-or-...', help: 'Paid fallback router to many models.' },
-  { field: 'dalleKey', label: 'OpenAI DALL-E key', placeholder: 'sk-...', help: 'Image generation (optional).' },
-  { field: 'stabilityKey', label: 'Stability AI key', placeholder: 'sk-...', help: 'Image generation fallback (optional).' },
+const KEYS: { field: keyof AIProviderConfig; label: string; placeholder: string; help: string; getKeyUrl: string }[] = [
+  { field: 'openaiKey', label: 'OpenAI API key', placeholder: 'sk-...', help: 'Used for premium GPT-4o and fallback GPT-4o-mini.', getKeyUrl: 'https://platform.openai.com/api-keys' },
+  { field: 'cerebroKey', label: 'Cerebras API key', placeholder: 'csk-...', help: 'Fastest provider (Llama on Cerebras).', getKeyUrl: 'https://cloud.cerebras.ai' },
+  { field: 'deepseekKey', label: 'DeepSeek API key', placeholder: 'sk-...', help: 'Best-quality chat, plus reasoning (R1).', getKeyUrl: 'https://platform.deepseek.com' },
+  { field: 'geminiKey', label: 'Google Gemini API key', placeholder: 'AIza...', help: 'Premium Gemini Pro + free Gemini Flash quota.', getKeyUrl: 'https://aistudio.google.com/app/apikey' },
+  { field: 'groqKey', label: 'Groq API key', placeholder: 'gsk_...', help: 'Free, ultra-fast Llama models.', getKeyUrl: 'https://console.groq.com/keys' },
+  { field: 'openrouterKey', label: 'OpenRouter API key', placeholder: 'sk-or-...', help: 'Paid fallback router to many models.', getKeyUrl: 'https://openrouter.ai/keys' },
+  { field: 'dalleKey', label: 'OpenAI DALL-E key', placeholder: 'sk-...', help: 'Image generation (optional).', getKeyUrl: 'https://platform.openai.com/api-keys' },
+  { field: 'stabilityKey', label: 'Stability AI key', placeholder: 'sk-...', help: 'Image generation fallback (optional).', getKeyUrl: 'https://platform.stability.ai/account/keys' },
 ];
 
 const PROVIDERS = [
@@ -40,6 +42,7 @@ export function AdminAISettings() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
   const [config, setConfig] = useState<AIProviderConfig>({ activeProvider: '', premiumEnabled: true });
 
   useEffect(() => {
@@ -58,6 +61,8 @@ export function AdminAISettings() {
 
   const update = (field: keyof AIProviderConfig, value: string | boolean) =>
     setConfig((prev) => ({ ...prev, [field]: value }));
+
+  const toggleShowKey = (field: string) => setShowKeys((prev) => ({ ...prev, [field]: !prev[field] }));
 
   const handleSave = async () => {
     setError('');
@@ -125,17 +130,41 @@ export function AdminAISettings() {
           <div className="space-y-4">
             {KEYS.map((keyField) => (
               <div key={keyField.field}>
-                <label className="label" htmlFor={`ai-${keyField.field}`}>
-                  {keyField.label}
-                </label>
-                <input
-                  id={`ai-${keyField.field}`}
-                  type="password"
-                  className="input font-mono text-xs"
-                  placeholder={keyField.placeholder}
-                  value={(config[keyField.field] as string) || ''}
-                  onChange={(e) => update(keyField.field, e.target.value)}
-                />
+                <div className="mb-1.5 flex items-center justify-between">
+                  <label className="label mb-0" htmlFor={`ai-${keyField.field}`}>
+                    {keyField.label}
+                  </label>
+                  <a
+                    href={keyField.getKeyUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs font-medium text-gold-600 hover:underline dark:text-gold-400"
+                  >
+                    Get key →
+                  </a>
+                </div>
+                <div className="relative">
+                  <input
+                    id={`ai-${keyField.field}`}
+                    type={showKeys[keyField.field] ? 'text' : 'password'}
+                    className="input font-mono text-xs !pr-9"
+                    placeholder={keyField.placeholder}
+                    value={(config[keyField.field] as string) || ''}
+                    onChange={(e) => update(keyField.field, e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => toggleShowKey(keyField.field)}
+                    aria-label={showKeys[keyField.field] ? 'Hide API key' : 'Show API key'}
+                    className="absolute inset-y-0 right-0 flex items-center px-2.5 text-text-muted hover:text-text-primary"
+                  >
+                    {showKeys[keyField.field] ? (
+                      <EyeOff aria-hidden="true" className="h-4 w-4" />
+                    ) : (
+                      <Eye aria-hidden="true" className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
                 <p className="mt-1 text-xs text-text-muted">{keyField.help}</p>
               </div>
             ))}

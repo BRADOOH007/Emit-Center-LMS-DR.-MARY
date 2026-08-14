@@ -43,7 +43,6 @@ export function AdminCourses() {
   const [published, setPublished] = useState<string[]>([]);
   const [composerOpen, setComposerOpen] = useState(false);
   const [draft, setDraft] = useState({ title: '', subject: 'coding', ageLevel: 'middle', format: 'online', priceUsd: '149' });
-  const [added, setAdded] = useState<AdminCourse[]>([]);
 
   // --- prerequisites & standards editor ---
   const [editId, setEditId] = useState<string | null>(null);
@@ -53,63 +52,96 @@ export function AdminCourses() {
   const [saveMsg, setSaveMsg] = useState('');
 
   useEffect(() => {
-    let active = true;
-    fetch('/api/admin/courses')
-      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
-      .then((json) => {
-        if (!active) return;
-        const data = Array.isArray(json.data) ? (json.data as AdminCourse[]) : [];
-        setCourses(data);
-        setPublished(data.filter((c) => c.isPublished).map((c) => c.id));
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
+    loadCourses();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const togglePublished = (id: string) => {
-    setPublished((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const loadCourses = async () => {
+    try {
+      const res = await fetch('/api/admin/courses');
+      if (!res.ok) return;
+      const json = await res.json();
+      if (!Array.isArray(json.data)) return;
+      const data = json.data as AdminCourse[];
+      setCourses(data);
+      setPublished(data.filter((c) => c.isPublished).map((c) => c.id));
+    } catch {
+      /* ignore transient errors */
+    }
   };
 
-  const allCourses = [...added, ...courses];
+  const togglePublished = async (id: string) => {
+    const course = courses.find((c) => c.id === id);
+    if (!course) return;
+    const next = !published.includes(id);
+    const prevPublished = published;
+    setPublished((p) => (next ? [...p, id] : p.filter((x) => x !== id)));
+    try {
+      const res = await fetch(`/api/admin/courses/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isPublished: next }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        setPublished(prevPublished);
+        window.alert(`Failed to ${next ? 'publish' : 'unpublish'}: ${json.error ?? 'unknown error'}`);
+      }
+    } catch {
+      setPublished(prevPublished);
+      window.alert('Network error while toggling publish state.');
+    }
+  };
+
+  const allCourses = courses;
 
   const filtered = allCourses.filter((c) =>
     c.title.toLowerCase().includes(search.toLowerCase()) || c.subject.includes(search.toLowerCase()),
   );
 
-  const createCourse = () => {
+  const createCourse = async () => {
     if (!draft.title.trim()) return;
-    const id = `crs_new_${Date.now()}`;
-    const formats = ['onsite', 'online', 'hybrid'] as const;
-    const newCourse: AdminCourse = {
-      id,
-      title: draft.title.trim(),
-      slug: draft.title.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-      description: 'Newly added course awaiting a full description.',
-      format: formats.includes(draft.format as (typeof formats)[number]) ? (draft.format as DeliveryFormat) : 'online',
-      ageLevel: draft.ageLevel as AgeLevel,
-      subject: draft.subject as CourseSubject,
-      schedule: {
-        days: ['Saturday'],
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 90 * 86400000).toISOString(),
-        timeSlots: [{ start: '10:00', end: '12:00', timezone: 'US Eastern' }],
-      },
-      maxSeats: 20,
-      enrolledCount: 0,
-      instructorId: 'usr_0002',
-      instructor: undefined,
-      pricing: [{ id: `prc_${id}`, courseId: id, currency: 'USD', amount: Math.round(Number(draft.priceUsd || 0) * 100) }],
-      prerequisites: [],
-      standards: [],
-      isPublished: false,
-      createdAt: new Date().toISOString(),
-    };
-    setAdded((prev) => [newCourse, ...prev]);
-    setPublished((prev) => [newCourse.id, ...prev]);
-    setComposerOpen(false);
-    setDraft({ title: '', subject: 'coding', ageLevel: 'middle', format: 'online', priceUsd: '149' });
+    const pricing = { currency: 'USD' as const, amount: Math.round(Number(draft.priceUsd || 0) * 100) };
+    try {
+      const res = await fetch('/api/admin/courses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: draft.title.trim(),
+          subject: draft.subject,
+          ageLevel: draft.ageLevel,
+          format: draft.format,
+          description: 'Newly added course awaiting a full description.',
+          pricing: [pricing],
+          isPublished: false,
+        }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        window.alert(`Failed to create course: ${json.error ?? 'unknown error'}`);
+        return;
+      }
+      setComposerOpen(false);
+      setDraft({ title: '', subject: 'coding', ageLevel: 'middle', format: 'online', priceUsd: '149' });
+      await loadCourses();
+    } catch {
+      window.alert('Network error while creating course.');
+    }
+  };
+
+  const deleteCourse = async (course: AdminCourse) => {
+    if (!window.confirm(`Delete course “${course.title}”? This cannot be undone.`)) return;
+    try {
+      const res = await fetch(`/api/admin/courses/${course.id}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (!json.success) {
+        window.alert(`Failed to delete: ${json.error ?? 'unknown error'}`);
+        return;
+      }
+      await loadCourses();
+    } catch {
+      window.alert('Network error while deleting course.');
+    }
   };
 
   const openCourseEditor = (course: AdminCourse) => {
@@ -229,6 +261,14 @@ export function AdminCourses() {
           >
             {published.includes(course.id) ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
             {published.includes(course.id) ? 'Unpublish' : 'Publish'}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={`Delete ${course.title}`}
+            onClick={() => deleteCourse(course)}
+          >
+            <Trash2 aria-hidden="true" className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
           </Button>
         </div>
       ),

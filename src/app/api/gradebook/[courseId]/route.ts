@@ -5,6 +5,19 @@ import { getSessionUser } from '@/lib/auth';
 import { isAdminRole, writeAuditLog } from '@/lib/security';
 import { percentageToLetter } from '@/lib/grading';
 
+function toArray<T = Record<string, unknown>>(value: unknown): T[] {
+  if (Array.isArray(value)) return value as T[];
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? (parsed as T[]) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 export async function GET(_req: NextRequest, { params }: { params: { courseId: string } }) {
   const me = await getSessionUser();
   if (!me) return forbid('Sign in required');
@@ -28,8 +41,8 @@ export async function GET(_req: NextRequest, { params }: { params: { courseId: s
       id: e.id,
       courseId: e.courseId,
       userId: e.userId,
-      quizScores: JSON.parse(e.quizScoresJson as unknown as string),
-      assignmentScores: JSON.parse(e.assignmentScoresJson as unknown as string),
+      quizScores: toArray(e.quizScoresJson),
+      assignmentScores: toArray(e.assignmentScoresJson),
       practicalScore: e.practicalScore,
       overallPercentage: e.overallPercentage,
       letterGrade: e.letterGrade,
@@ -101,20 +114,20 @@ export async function PATCH(request: NextRequest, { params }: { params: { course
 
     if (!existing) return notFound('Gradebook entry not found');
 
-    const quizScores = body.quizScores ? JSON.parse(existing.quizScoresJson as unknown as string) : JSON.parse(existing.quizScoresJson as unknown as string);
-    const assignmentScores = body.assignmentScores
-      ? JSON.parse(existing.assignmentScoresJson as unknown as string)
-      : JSON.parse(existing.assignmentScoresJson as unknown as string);
+    const quizScores = toArray<{ quizId: string; score: number; total?: number }>(existing.quizScoresJson);
+    const assignmentScores = toArray<{ assignmentId: string; score: number; total?: number }>(
+      existing.assignmentScoresJson,
+    );
 
     if (body.quizScores) {
       body.quizScores.forEach((qs) => {
-        const item = quizScores.find((e: { quizId: string }) => e.quizId === qs.quizId);
+        const item = quizScores.find((e) => e.quizId === qs.quizId);
         if (item) item.score = qs.score;
       });
     }
     if (body.assignmentScores) {
       body.assignmentScores.forEach((as) => {
-        const item = assignmentScores.find((e: { assignmentId: string }) => e.assignmentId === as.assignmentId);
+        const item = assignmentScores.find((e) => e.assignmentId === as.assignmentId);
         if (item) item.score = as.score;
       });
     }
@@ -132,8 +145,8 @@ export async function PATCH(request: NextRequest, { params }: { params: { course
       data: {
         practicalScore: body.practicalScore ?? existing.practicalScore,
         comments: body.comments !== undefined ? body.comments : existing.comments,
-        quizScoresJson: JSON.stringify(quizScores),
-        assignmentScoresJson: JSON.stringify(assignmentScores),
+        quizScoresJson: quizScores as unknown as object,
+        assignmentScoresJson: assignmentScores as unknown as object,
         overallPercentage,
         letterGrade: percentageToLetter(overallPercentage),
       },

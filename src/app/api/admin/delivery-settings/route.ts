@@ -21,6 +21,11 @@ export interface DeliverySettings {
 const KEY = 'delivery_settings';
 const SECRET_KEYS = ['smtpPass', 'resendApiKey', 'sendgridApiKey', 'twilioAuthToken'] as const;
 
+function redact(value: string): string {
+  if (!value) return '';
+  return value.length > 8 ? `••••••••${value.slice(-4)}` : '••••••••';
+}
+
 function readSecret(key: string, prev: Record<string, unknown>): string {
   const v = prev[key];
   return typeof v === 'string' ? v : '';
@@ -40,8 +45,8 @@ export async function GET() {
     smtpUser: (raw.smtpUser as string) ?? process.env.SMTP_USER ?? '',
     smtpFrom: (raw.smtpFrom as string) ?? process.env.SMTP_FROM ?? '',
     smtpConfigured: Boolean((raw.smtpPass as string) || process.env.SMTP_PASS),
-    resendApiKey: readSecret('resendApiKey', raw) || process.env.RESEND_API_KEY || '',
-    sendgridApiKey: readSecret('sendgridApiKey', raw) || process.env.SENDGRID_API_KEY || '',
+    resendApiKey: redact(readSecret('resendApiKey', raw) || process.env.RESEND_API_KEY || ''),
+    sendgridApiKey: redact(readSecret('sendgridApiKey', raw) || process.env.SENDGRID_API_KEY || ''),
     twilioAccountSid: (raw.twilioAccountSid as string) ?? process.env.TWILIO_ACCOUNT_SID ?? '',
     twilioFrom: (raw.twilioFrom as string) ?? process.env.TWILIO_FROM ?? '',
     twilioConfigured: Boolean((raw.twilioAuthToken as string) || process.env.TWILIO_AUTH_TOKEN),
@@ -63,16 +68,23 @@ export async function PUT(request: NextRequest) {
 
   const next: Record<string, unknown> = { ...prev };
 
+  const REDACTED = new RegExp('^•+');
+  const keepExisting = (bodyVal: string | undefined, storeKey: string) => {
+    if (bodyVal === undefined) return;
+    if (REDACTED.test(bodyVal)) return;
+    next[storeKey] = bodyVal.trim();
+  };
+
   if (body.smtpHost !== undefined) next.smtpHost = body.smtpHost.trim();
   if (body.smtpPort !== undefined) next.smtpPort = Number(body.smtpPort) || 587;
   if (body.smtpUser !== undefined) next.smtpUser = body.smtpUser.trim();
   if (body.smtpFrom !== undefined) next.smtpFrom = body.smtpFrom.trim();
-  if (body.resendApiKey !== undefined && body.resendApiKey.trim()) next.resendApiKey = body.resendApiKey.trim();
-  if (body.sendgridApiKey !== undefined && body.sendgridApiKey.trim()) next.sendgridApiKey = body.sendgridApiKey.trim();
+  keepExisting(body.resendApiKey, 'resendApiKey');
+  keepExisting(body.sendgridApiKey, 'sendgridApiKey');
   if (body.twilioAccountSid !== undefined) next.twilioAccountSid = body.twilioAccountSid.trim();
   if (body.twilioFrom !== undefined) next.twilioFrom = body.twilioFrom.trim();
-  if (body.smtpPass?.trim()) next.smtpPass = body.smtpPass.trim();
-  if (body.twilioAuthToken?.trim()) next.twilioAuthToken = body.twilioAuthToken.trim();
+  keepExisting(body.smtpPass, 'smtpPass');
+  keepExisting(body.twilioAuthToken, 'twilioAuthToken');
 
   await prisma.appSetting.upsert({
     where: { key: KEY },

@@ -28,9 +28,9 @@ export function HeaderNav({ onOpenDrawer, onSignOut }: { onOpenDrawer: () => voi
           <Image
             src="/brand/emit-logo.png"
             alt="EMIT Center logo"
-            width={40}
-            height={40}
-            className="h-10 w-10 object-contain"
+            width={48}
+            height={48}
+            className="h-12 w-12 object-contain"
           />
           <span className="hidden flex-col sm:flex">
             <span className="font-display text-base font-bold leading-tight tracking-tight text-text-primary">
@@ -43,7 +43,7 @@ export function HeaderNav({ onOpenDrawer, onSignOut }: { onOpenDrawer: () => voi
         </Link>
 
         <div className="ml-auto flex items-center gap-2">
-          {user.activeRole !== 'super_admin' && (
+          {!['super_admin', 'administrator'].includes(user.activeRole) && (
             <button
               type="button"
               onClick={() => openAITutor()}
