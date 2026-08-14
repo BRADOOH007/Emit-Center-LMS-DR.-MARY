@@ -109,6 +109,7 @@ model User {
   generations       AIGeneratedContent[] @relation("UserGenerations")
   participationLogs ParticipationLog[]
   badges            UserBadge[]
+  files             UploadedFile[]       @relation("UserFiles")
 }
 
 model Session {
@@ -434,6 +435,8 @@ model Submission {
   userId       String
   fileName     String
   fileSize     Int      @default(0)
+  fileUrl      String?
+  fileKey      String?
   submittedAt  DateTime @default(now())
   score        Int?
   feedback     String?  @db.Text
@@ -665,6 +668,7 @@ model ChatMessage {
   room      String?
   userId    String
   userName  String
+  role      String   @default("user")
   content   String   @db.Text
   timestamp DateTime @default(now())
 
@@ -673,6 +677,7 @@ model ChatMessage {
 
   @@index([sessionId])
   @@index([sessionId, room])
+  @@index([userId, sessionId, room])
 }
 
 model DiscussionThread {
@@ -744,6 +749,29 @@ model QuizAttempt {
 
   quiz Quiz @relation(fields: [quizId], references: [id], onDelete: Cascade)
   user User @relation("UserQuizzes", fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PromoUsage {
+  code      String   @id
+  used      Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+model UploadedFile {
+  id           String   @id @default(cuid())
+  userId       String
+  originalName String
+  mimeType     String
+  size         Int
+  storage      String   @default("local") // local | vercel_blob
+  key          String   @unique
+  url          String?
+  createdAt    DateTime @default(now())
+
+  user User @relation("UserFiles", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
 }
 
 model AIGeneratedContent {

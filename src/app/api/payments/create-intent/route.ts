@@ -5,7 +5,25 @@ import { ok, badRequest, notFound, forbid, serverError, parseBody } from '@/lib/
 import { getSessionUser } from '@/lib/auth';
 import { isRateLimited, writeAuditLog } from '@/lib/security';
 import { getPaymentConfigServer } from '@/lib/payment-config';
+import { promoUsageCount } from '@/lib/payments';
 import type { SupportedCurrency } from '@/types';
+
+interface PromoDef {
+  discountPercent: number;
+  maxUses: number;
+}
+
+async function applyPromo(promoCode: string | undefined, promoCodes: Record<string, PromoDef>): Promise<{ discountPercent: number; valid: boolean }> {
+  if (!promoCode) return { discountPercent: 0, valid: false };
+  const code = promoCode.toUpperCase().trim();
+  const promo = promoCodes[code];
+  if (!promo) return { discountPercent: 0, valid: false };
+  const timesUsed = Number(await promoUsageCount(code).catch(() => 0));
+  if (Number(promo.maxUses) > 0 && timesUsed >= Number(promo.maxUses)) {
+    return { discountPercent: 0, valid: false };
+  }
+  return { discountPercent: Math.min(100, Math.max(0, Number(promo.discountPercent))), valid: true };
+}
 
 function getStripeConfig(config: { stripePublishableKey: string; stripeSecretKey: string }): { publishableKey: string; secretKey: string } | null {
   const publishableKey = config.stripePublishableKey;
@@ -13,16 +31,6 @@ function getStripeConfig(config: { stripePublishableKey: string; stripeSecretKey
   if (!publishableKey || !secretKey) return null;
   if (!publishableKey.startsWith('pk_') || !secretKey.startsWith('sk_')) return null;
   return { publishableKey, secretKey };
-}
-
-function applyPromo(promoCode: string | undefined, promoCodes: Record<string, { discountPercent: number; maxUses: number }>, used: Record<string, number>): number {
-  if (!promoCode) return 0;
-  const code = promoCode.toUpperCase().trim();
-  const promo = promoCodes[code];
-  if (!promo) return 0;
-  const timesUsed = used[code] ?? 0;
-  if (timesUsed >= promo.maxUses) return 0;
-  return Math.min(100, Math.max(0, promo.discountPercent));
 }
 
 export async function POST(request: NextRequest) {
@@ -64,7 +72,7 @@ export async function POST(request: NextRequest) {
 
   const fullConfig = await getPaymentConfigServer();
 
-  const discountPercent = applyPromo(body.promoCode, promoCodes, {});
+  const { discountPercent } = await applyPromo(body.promoCode, promoCodes);
   const discountedAmount = Math.round(price.amount * (1 - discountPercent / 100));
   const promoApplied = discountPercent > 0 ? body.promoCode?.toUpperCase() : null;
 

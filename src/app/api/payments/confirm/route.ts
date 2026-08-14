@@ -1,10 +1,11 @@
 import { NextRequest } from 'next/server';
 import Stripe from 'stripe';
 import { prisma } from '@/lib/prisma';
-import { ok, badRequest, notFound, forbid, serverError, parseBody } from '@/lib/api-helpers';
+import { ok, badRequest, serverError, forbid, parseBody } from '@/lib/api-helpers';
 import { getSessionUser } from '@/lib/auth';
 import { isRateLimited, writeAuditLog } from '@/lib/security';
 import { getPaymentConfigServer } from '@/lib/payment-config';
+import { activateEnrollmentForPayment } from '@/lib/payments';
 
 function getStripeConfig(config: { stripePublishableKey: string; stripeSecretKey: string }): { publishableKey: string; secretKey: string } | null {
   const publishableKey = config.stripePublishableKey;
@@ -23,6 +24,7 @@ export async function POST(request: NextRequest) {
   const body = await parseBody<{
     courseId?: string;
     paymentIntentId?: string;
+    promoCode?: string;
   }>(request).catch(() => null);
 
   if (!body?.courseId || !body?.paymentIntentId) {
@@ -30,7 +32,7 @@ export async function POST(request: NextRequest) {
   }
 
   const course = await prisma.course.findUnique({ where: { id: body.courseId } });
-  if (!course) return notFound('Course not found');
+  if (!course) return badRequest('Course not found');
 
   const existingEnrollment = await prisma.enrollment.findUnique({
     where: { userId_courseId: { userId: me.id, courseId: course.id } },
@@ -91,42 +93,19 @@ export async function POST(request: NextRequest) {
   const price = await prisma.coursePrice.findFirst({ where: { courseId: course.id } });
   const amount = price?.amount ?? 0;
 
-  const enrollment = await prisma.$transaction(async (tx) => {
-    const enrollmentRow = await tx.enrollment.upsert({
-      where: { userId_courseId: { userId: me.id, courseId: course.id } },
-      update: { status: 'active' },
-      create: { userId: me.id, courseId: course.id, status: 'active' },
-    });
+  // For demo/paypal flows (no Stripe webhook) we record promo usage here; the
+  // Stripe webhook is the authoritative recorder for real Stripe payments.
+  const countPromoHere = isDemoIntent || isPayPalOrder;
 
-    await tx.payment.create({
-      data: {
-        userId: me.id,
-        courseId: course.id,
-        enrollmentId: enrollmentRow.id,
-        amount,
-        currency: 'USD',
-        stripePaymentIntentId: body.paymentIntentId as string,
-        status: 'succeeded',
-      },
-    });
-
-    await tx.course.update({
-      where: { id: course.id },
-      data: { enrolledCount: { increment: 1 } },
-    });
-
-    await tx.notification.create({
-      data: {
-        userId: me.id,
-        type: 'enrollment',
-        title: `Enrolled in ${course.title}`,
-        body: `Your enrollment in ${course.title} is active. Check your schedule for upcoming sessions.`,
-        actionUrl: `/courses/${course.id}`,
-      },
-    });
-
-    return enrollmentRow;
-  }, { timeout: 20000 });
+  const { enrollmentId: enrollment } = await activateEnrollmentForPayment({
+    userId: me.id,
+    courseId: course.id,
+    paymentIntentId: body.paymentIntentId as string,
+    amount,
+    currency: fullConfig.baseCurrency ?? 'USD',
+    promoCode: body.promoCode,
+    countPromo: countPromoHere,
+  });
 
   await writeAuditLog({
     userId: me.id,

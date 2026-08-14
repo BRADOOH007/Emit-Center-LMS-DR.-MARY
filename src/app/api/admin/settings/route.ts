@@ -18,6 +18,7 @@ export async function GET() {
     stripePublishableKey: raw?.stripePublishableKey ?? (process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? ''),
     stripeSecretKey: redactSecret(raw?.stripeSecretKey ?? process.env.STRIPE_SECRET_KEY ?? ''),
     stripeSecretKeyConfigured: Boolean(raw?.stripeSecretKey ?? process.env.STRIPE_SECRET_KEY),
+    stripeWebhookSecret: redactSecret(raw?.stripeWebhookSecret ?? process.env.STRIPE_WEBHOOK_SECRET ?? ''),
     baseCurrency: raw?.baseCurrency ?? 'USD',
     demoMode: raw?.demoMode ?? true,
     paymentGateway: raw?.paymentGateway ?? 'stripe',
@@ -39,6 +40,7 @@ export async function PUT(request: NextRequest) {
   const body = await parseBody<{
     stripePublishableKey?: string;
     stripeSecretKey?: string;
+    stripeWebhookSecret?: string;
     baseCurrency?: string;
     demoMode?: boolean;
     paymentGateway?: 'stripe' | 'paypal';
@@ -59,6 +61,7 @@ export async function PUT(request: NextRequest) {
       (body.stripePublishableKey ?? prev.stripePublishableKey ?? process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? '').trim(),
     stripeSecretKey: prev.stripeSecretKey ?? process.env.STRIPE_SECRET_KEY ?? '',
     stripeSecretKeyConfigured: Boolean(prev.stripeSecretKey ?? process.env.STRIPE_SECRET_KEY),
+    stripeWebhookSecret: prev.stripeWebhookSecret ?? process.env.STRIPE_WEBHOOK_SECRET ?? '',
     baseCurrency: (body.baseCurrency ?? prev.baseCurrency ?? 'USD').toUpperCase(),
     demoMode: body.demoMode ?? prev.demoMode ?? true,
     paymentGateway: body.paymentGateway ?? prev.paymentGateway ?? 'stripe',
@@ -73,6 +76,10 @@ export async function PUT(request: NextRequest) {
     next.stripeSecretKey = body.stripeSecretKey.trim();
     next.stripeSecretKeyConfigured = true;
     process.env.STRIPE_SECRET_KEY = body.stripeSecretKey.trim();
+  }
+  if (body.stripeWebhookSecret?.trim() && !isRedacted(body.stripeWebhookSecret)) {
+    next.stripeWebhookSecret = body.stripeWebhookSecret.trim();
+    process.env.STRIPE_WEBHOOK_SECRET = body.stripeWebhookSecret.trim();
   }
   if (body.stripePublishableKey?.trim()) {
     next.stripePublishableKey = body.stripePublishableKey.trim();
@@ -99,6 +106,7 @@ export async function PUT(request: NextRequest) {
   const safe: PaymentConfig = {
     ...next,
     stripeSecretKey: redactSecret(next.stripeSecretKey),
+    stripeWebhookSecret: redactSecret(next.stripeWebhookSecret),
     paypalClientSecret: redactSecret(next.paypalClientSecret),
   };
   return ok(safe);

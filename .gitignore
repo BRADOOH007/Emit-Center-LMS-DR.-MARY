@@ -37,3 +37,9 @@ yarn-error.log*
 next-env.d.ts
 
 .vercel
+
+data/uploads/
+
+# local run artifacts
+logs-server.out
+

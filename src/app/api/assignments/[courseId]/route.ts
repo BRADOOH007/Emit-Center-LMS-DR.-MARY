@@ -45,6 +45,8 @@ export async function POST(request: NextRequest) {
     assignmentId?: string;
     fileName?: string;
     fileSize?: number;
+    fileUrl?: string;
+    fileKey?: string;
     textAnswer?: string;
   }>(request).catch(() => null);
 
@@ -60,11 +62,15 @@ export async function POST(request: NextRequest) {
     return forbid('You must be enrolled in this course to submit');
   }
 
+  const fileName = sanitizeInput(body.fileName ?? '').slice(0, 255) || 'text-submission.txt';
+
   const submission = await prisma.submission.upsert({
     where: { assignmentId_userId: { assignmentId: assignment.id, userId: me.id } },
     update: {
-      fileName: sanitizeInput(body.fileName ?? '').slice(0, 255) || 'text-submission.txt',
+      fileName,
       fileSize: body.fileSize ?? 0,
+      fileUrl: body.fileUrl ?? null,
+      fileKey: body.fileKey ?? null,
       status: 'submitted',
       submittedAt: new Date(),
       score: null,
@@ -74,8 +80,10 @@ export async function POST(request: NextRequest) {
     create: {
       assignmentId: assignment.id,
       userId: me.id,
-      fileName: sanitizeInput(body.fileName ?? '').slice(0, 255) || 'text-submission.txt',
+      fileName,
       fileSize: body.fileSize ?? 0,
+      fileUrl: body.fileUrl ?? null,
+      fileKey: body.fileKey ?? null,
       status: 'submitted',
     },
   });

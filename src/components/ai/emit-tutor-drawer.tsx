@@ -79,15 +79,21 @@ export function EmitTutorDrawer({
     if (!open) return;
     fetch('/api/ai/chat/history?limit=20')
       .then((r) => (r.ok ? r.json() : []))
-      .then((data: { messages?: Array<{ id: string; role: string; content: string }> }) => {
+      .then((data: { messages?: Array<{ id: string; role: string; content: string }>; lastQuestion?: string | null }) => {
         const history: Message[] = (data?.messages || []).map((m) => ({
           id: m.id || Date.now().toString(),
           role: m.role === 'assistant' ? 'assistant' : 'user',
           content: m.content,
         }));
         if (history.length > 0) {
-          setMessages(history);
-          messagesRef.current = history;
+          const lastQuestion = data?.lastQuestion || null;
+          const greeting: Message = {
+            id: 'greeting',
+            role: 'assistant',
+            content: `Hi ${name}! I remember where we left off${lastQuestion ? ` — you were asking about **"${lastQuestion}"**` : ''}. Shall we pick up where you stopped, or explore something new today?`,
+          };
+          setMessages([greeting, ...history]);
+          messagesRef.current = [greeting, ...history];
           return;
         }
         setMessages([

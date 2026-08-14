@@ -2,7 +2,7 @@ import { badRequest, ok } from '@/lib/api-helpers';
 import { getSessionUser } from '@/lib/auth';
 import { OpenAIService } from '@/lib/openai-service';
 import { stripLatex } from '@/lib/clean-ai-text';
-import { buildCurriculumLessonContext, DEFAULT_CURRICULUM, DEFAULT_COUNTRY } from '@/lib/curriculum-prompt';
+import { buildCurriculumLessonContext, buildUSCurriculumKnowledge, DEFAULT_CURRICULUM, DEFAULT_COUNTRY } from '@/lib/curriculum-prompt';
 import { buildStudentContext } from '@/lib/student-context';
 import { checkAIUsageAllowed, recordAIUsage } from '@/lib/ai-usage';
 import { prisma } from '@/lib/prisma';
@@ -45,12 +45,13 @@ export async function POST(request: Request) {
   const name = studentName || (me ? me.name.split(' ')[0] : 'student');
   const subj = subject || 'your studies';
   const gradeStr = grade ? ` at ${grade} level` : '';
-  const effectiveCurriculum = curriculum || DEFAULT_CURRICULUM;
 
   let systemPrompt = `You are Emit Tutor Bot, an encouraging and patient AI learning assistant for ${name} at EMIT Center. Always address ${name} naturally by name, encourage their progress, simplify complex concepts, and align explanations with${gradeStr} their learning level. You are warm, supportive, and make learning enjoyable.`;
 
+  const explicitCurriculum =
+    curriculum && curriculum !== DEFAULT_CURRICULUM ? curriculum : 'us-generic';
   const curCtx = buildCurriculumLessonContext({
-    curriculum: effectiveCurriculum,
+    curriculum: explicitCurriculum,
     country: DEFAULT_COUNTRY,
     grade: grade || '',
     subject: subject || '',
@@ -112,16 +113,50 @@ Teaching rules:
     }
   }
 
+  if ((context === 'student_tutor' || context === 'teacher_assistant') && !autoTeach) {
+    systemPrompt += `\n\n${buildUSCurriculumKnowledge()}`;
+  }
+
+  let conversationMemory = '';
+  if (context === 'student_tutor' && userId) {
+    const memory = await prisma.chatMessage.findMany({
+      where: { userId, sessionId: null, room: 'tutor' },
+      orderBy: { timestamp: 'desc' },
+      take: 8,
+    });
+    if (memory.length > 0) {
+      const recent = memory.reverse();
+      conversationMemory = `\n\nCONVERSATION MEMORY — You have talked with ${name} before. Here is the recent history:\n${recent
+        .map((m) => `${m.role === 'assistant' ? 'Emit Tutor Bot' : name}: ${m.content.slice(0, 400)}`)
+        .join('\n')}\n\nPick up naturally where they left off. Reference the earlier topic when relevant and continue from there.`;
+    }
+  }
+  if (conversationMemory) systemPrompt += conversationMemory;
+
   const chatMessages: { role: 'user' | 'system' | 'assistant'; content: string }[] = [
     { role: 'system', content: systemPrompt },
   ];
-  if (Array.isArray(messages)) {
+  if (context !== 'student_tutor' && Array.isArray(messages)) {
     for (const m of messages) {
       const role = m.role === 'ai' || m.role === 'assistant' ? ('assistant' as const) : ('user' as const);
       chatMessages.push({ role, content: m.content });
     }
   }
   chatMessages.push({ role: 'user', content: message });
+
+  if (userId && context === 'student_tutor') {
+    await prisma.chatMessage
+      .create({
+        data: {
+          userId,
+          userName: me?.name ?? name,
+          role: 'user',
+          content: message,
+          room: 'tutor',
+        },
+      })
+      .catch(() => {});
+  }
 
   let detailed;
   try {
@@ -137,13 +172,15 @@ Teaching rules:
     recordAIUsage(userId, detailed.tokensUsed).catch(() => {});
   }
 
-  if (userId && context === 'student_tutor') {
-    prisma.chatMessage
+  if (userId && context === 'student_tutor' && detailed.content) {
+    await prisma.chatMessage
       .create({
         data: {
           userId,
-          userName: me?.name ?? name,
-          content: message,
+          userName: 'Emit Tutor Bot',
+          role: 'assistant',
+          content: detailed.content,
+          room: 'tutor',
         },
       })
       .catch(() => {});

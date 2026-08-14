@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   BookOpen,
   ChevronDown,
@@ -16,6 +16,7 @@ import {
   Link2,
   Plus,
   Trash2,
+  Upload,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -53,6 +54,8 @@ export function InstructorContent({ instructorId }: { instructorId: string }) {
   const [addingTo, setAddingTo] = useState<string | null>(null);
   const [contentDraft, setContentDraft] = useState({ title: '', type: 'document' as ContentType, url: '', duration: '' });
   const [savingContent, setSavingContent] = useState(false);
+  const [uploadingContent, setUploadingContent] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [error, setError] = useState('');
 
@@ -114,8 +117,28 @@ export function InstructorContent({ instructorId }: { instructorId: string }) {
     }
   };
 
-  const addContent = async () => {
-    if (!addingTo || !contentDraft.title.trim()) return;
+  const uploadContentFile = async (file: File) => {
+    setUploadingContent(true);
+    setError('');
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch('/api/uploads', { method: 'POST', body: form });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setError(json.error ?? 'Upload failed');
+        return;
+      }
+      setContentDraft((prev) => ({ ...prev, url: json.data.url ?? `/api/uploads/${json.data.id}` }));
+    } catch {
+      setError('Network error during upload');
+    } finally {
+      setUploadingContent(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const addContent = async () => {    if (!addingTo || !contentDraft.title.trim()) return;
     setSavingContent(true);
     setError('');
     try {
@@ -295,8 +318,31 @@ export function InstructorContent({ instructorId }: { instructorId: string }) {
                           </div>
                           <div className="grid gap-3 sm:grid-cols-2">
                             <div>
-                              <label className="label">URL {contentDraft.type === 'document' ? '(file/link)' : contentDraft.type === 'video' ? '(embed)' : contentDraft.type === 'scorm' ? '(manifest)' : ''}</label>
-                              <input className="input" value={contentDraft.url} onChange={(e) => setContentDraft({ ...contentDraft, url: e.target.value })} placeholder="https://…" />
+                              <div className="flex items-center justify-between">
+                                <label className="label">URL {contentDraft.type === 'document' ? '(file/link)' : contentDraft.type === 'video' ? '(embed)' : contentDraft.type === 'scorm' ? '(manifest)' : ''}</label>
+                                {(contentDraft.type === 'document' || contentDraft.type === 'scorm') && (
+                                  <button
+                                    type="button"
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="inline-flex items-center gap-1 text-xs font-semibold text-gold-700 hover:text-gold-800 dark:text-gold-300"
+                                  >
+                                    {uploadingContent ? <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" /> : <Upload aria-hidden="true" className="h-3 w-3" />}
+                                    Upload file
+                                  </button>
+                                )}
+                              </div>
+                              <div className="flex gap-2">
+                                <input className="input" value={contentDraft.url} onChange={(e) => setContentDraft({ ...contentDraft, url: e.target.value })} placeholder="https://…" />
+                                <input
+                                  ref={fileInputRef}
+                                  type="file"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    const f = e.target.files?.[0];
+                                    if (f) uploadContentFile(f);
+                                  }}
+                                />
+                              </div>
                             </div>
                             <div>
                               <label className="label">Duration (optional)</label>

@@ -14,7 +14,7 @@ export default async function MessagesPage() {
           Direct messaging between parents and instructors. Messages are private and end-to-end.
         </p>
       </div>
-      <MessagingInbox userId={userId} />
+      <MessagingInbox userId={userId} roles={user?.roles ?? []} />
     </div>
   );
 }

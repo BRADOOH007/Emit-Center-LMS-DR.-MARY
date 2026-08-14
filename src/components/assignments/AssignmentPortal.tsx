@@ -58,10 +58,22 @@ export function AssignmentPortal({ courseId }: { courseId: string }) {
     if (!file) return;
     setUploadingId(assignmentId);
     try {
+      const form = new FormData();
+      form.append('file', file);
+      const upRes = await fetch('/api/uploads', { method: 'POST', body: form });
+      if (!upRes.ok) return;
+      const upJson = await upRes.json();
+      const uploaded = upJson?.data as { url?: string; key?: string; originalName?: string } | undefined;
       const res = await fetch(`/api/assignments/${encodeURIComponent(courseId)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assignmentId, fileName: file.name, fileSize: file.size }),
+        body: JSON.stringify({
+          assignmentId,
+          fileName: uploaded?.originalName ?? file.name,
+          fileSize: file.size,
+          fileUrl: uploaded?.url ?? undefined,
+          fileKey: uploaded?.key ?? undefined,
+        }),
       });
       if (res.ok) {
         const json = await res.json();
@@ -163,7 +175,13 @@ export function AssignmentPortal({ courseId }: { courseId: string }) {
                             {submission.letterGrade && ` (${submission.letterGrade})`}
                           </Badge>
                         )}
-                        <Button variant="ghost" size="sm">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            if (submission.fileUrl) window.open(submission.fileUrl, '_blank');
+                          }}
+                        >
                           <Download aria-hidden="true" className="h-4 w-4" />
                         </Button>
                       </div>

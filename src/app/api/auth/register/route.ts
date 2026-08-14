@@ -6,6 +6,7 @@ import { ok, badRequest, parseBody } from '@/lib/api-helpers';
 import { isValidEmail, sanitizeInput } from '@/lib/validation';
 import { isRateLimited } from '@/lib/security';
 import { generateToken } from '@/lib/auth';
+import { sendVerifyEmail } from '@/lib/emails';
 import { ensureUniqueUsername } from '@/lib/credentials';
 import type { SupportedCurrency, SupportedLocale, SupportedTimeZone } from '@/types';
 
@@ -83,10 +84,13 @@ export async function POST(request: Request) {
       },
     });
 
-    const devVerifyUrl =
-      process.env.NODE_ENV === 'production'
-        ? undefined
-        : `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'}/verify-email?token=${verifyToken}`;
+    const verifyUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'}/verify-email?token=${verifyToken}`;
+
+    // Always attempt the email. In development a link is also returned in the
+    // response so the flow is fully testable without a configured provider.
+    sendVerifyEmail(email, fullName, verifyUrl).catch(() => {});
+
+    const devVerifyUrl = process.env.NODE_ENV === 'production' ? undefined : verifyUrl;
 
     return NextResponse.json({
       success: true,

@@ -4,6 +4,7 @@ export interface PaymentConfig {
   stripePublishableKey: string;
   stripeSecretKey: string;
   stripeSecretKeyConfigured: boolean;
+  stripeWebhookSecret: string;
   baseCurrency: string;
   demoMode: boolean;
   paymentGateway: 'stripe' | 'paypal';
@@ -39,6 +40,7 @@ export async function getPaymentConfigServer(): Promise<PaymentConfig> {
       stored?.stripePublishableKey ?? (process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? ''),
     stripeSecretKey: stored?.stripeSecretKey ?? (process.env.STRIPE_SECRET_KEY ?? ''),
     stripeSecretKeyConfigured: Boolean(stored?.stripeSecretKey ?? process.env.STRIPE_SECRET_KEY),
+    stripeWebhookSecret: stored?.stripeWebhookSecret ?? (process.env.STRIPE_WEBHOOK_SECRET ?? ''),
     baseCurrency: stored?.baseCurrency ?? 'USD',
     demoMode: stored?.demoMode ?? true,
     paymentGateway: stored?.paymentGateway ?? 'stripe',

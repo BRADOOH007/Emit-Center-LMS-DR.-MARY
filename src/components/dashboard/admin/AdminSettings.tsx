@@ -65,6 +65,7 @@ const EMPTY_PAYMENT: PaymentConfig = {
   stripePublishableKey: '',
   stripeSecretKey: '',
   stripeSecretKeyConfigured: false,
+  stripeWebhookSecret: '',
   baseCurrency: 'USD',
   demoMode: true,
   paymentGateway: 'stripe',
@@ -88,6 +89,7 @@ export function AdminSettings() {
   const [emailToggles, setEmailToggles] = useState(DEFAULT_EMAIL_TOGGLES);
   const [payment, setPayment] = useState<PaymentConfig>(EMPTY_PAYMENT);
   const [newSecretKey, setNewSecretKey] = useState('');
+  const [newWebhookSecret, setNewWebhookSecret] = useState('');
   const [newPromo, setNewPromo] = useState({ code: '', discountPercent: 20, maxUses: 10 });
   const [loading, setLoading] = useState(true);
 
@@ -310,6 +312,7 @@ export function AdminSettings() {
         body: JSON.stringify({
           stripePublishableKey: payment.stripePublishableKey,
           stripeSecretKey: newSecretKey,
+          stripeWebhookSecret: newWebhookSecret,
           baseCurrency: payment.baseCurrency,
           demoMode: payment.demoMode,
           paymentGateway: payment.paymentGateway,
@@ -332,6 +335,7 @@ export function AdminSettings() {
         paypalClientSecret: json.data.paypalClientSecret || payment.paypalClientSecret,
       });
       setNewSecretKey('');
+      setNewWebhookSecret('');
       setSaved(true);
       window.setTimeout(() => setSaved(false), 2000);
     } catch {
@@ -466,6 +470,40 @@ export function AdminSettings() {
               />
               <p className="mt-1 text-xs text-text-muted">
                 {payment.stripeSecretKeyConfigured ? 'A secret key is currently configured.' : 'No secret key configured — demo mode is active.'}
+              </p>
+            </div>
+
+            <div>
+              <div className="mb-1 flex items-center justify-between">
+                <label className="label" htmlFor="stripeWebhookSecret">Stripe webhook signing secret (whsec_...)</label>
+                <a
+                  href="https://dashboard.stripe.com/webhooks"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-gold-700 hover:text-gold-800 dark:text-gold-300"
+                >
+                  Webhooks <ExternalLink className="h-3 w-3" />
+                </a>
+              </div>
+              <input
+                id="stripeWebhookSecret"
+                type="password"
+                className="input font-mono text-xs"
+                placeholder={payment.stripeWebhookSecret ? '•••••••••••• (configured — leave blank to keep)' : 'whsec_...'}
+                value={newWebhookSecret}
+                onChange={(e) => setNewWebhookSecret(e.target.value)}
+              />
+              <p className="mt-1 text-xs text-text-muted">
+                {typeof window !== 'undefined' ? (
+                  <>
+                    Point a webhook to <span className="font-mono">{window.location.origin}/api/stripe/webhook</span> for{' '}
+                    <span className="font-mono">payment_intent.succeeded</span>,{' '}
+                    <span className="font-mono">payment_intent.payment_failed</span> and{' '}
+                    <span className="font-mono">charge.refunded</span>. Enrollments activate automatically on successful payment.
+                  </>
+                ) : (
+                  'Point a webhook to /api/stripe/webhook to activate enrollments automatically.'
+                )}
               </p>
             </div>
 

@@ -15,22 +15,42 @@ const FORBIDDEN_PATTERNS = [
 ];
 
 const EDUCATIONAL_KEYWORDS = [
-  'math', 'algebra', 'geometry', 'calculus', 'statistic', 'arithmetic',
-  'science', 'physics', 'chemistry', 'biology', 'earth science', 'environment',
-  'english', 'grammar', 'literature', 'reading', 'writing', 'vocabulary',
-  'history', 'geography', 'civics', 'government', 'economics', 'sociology',
-  'computer', 'programming', 'coding', 'technology', 'ict',
-  'art', 'music', 'physical education', 'pe',
-  'lesson', 'exam', 'test', 'quiz', 'assignment', 'homework', 'study', 'revision',
-  'curriculum', 'common core', 'ngss', 'teks', 'sat', 'act', 'ap', 'ged', 'grade', 'class',
-  'teacher', 'student', 'tutor', 'tutoring', 'teaching', 'learning',
-  'career', 'profession', 'job', 'skill', 'vocational',
-  'fraction', 'decimal', 'equation', 'formula', 'theorem',
-  'sentence', 'paragraph', 'essay', 'composition', 'comprehension',
-  'solar system', 'cell', 'force', 'energy', 'gravity', 'magnetism',
-  'noun', 'verb', 'adjective', 'adverb', 'tense', 'pronoun',
-  'addition', 'subtraction', 'multiplication', 'division',
+  'math', 'algebra', 'geometry', 'calculus', 'statistic', 'arithmetic', 'number', 'angle', 'graph', 'ratio',
+  'science', 'physics', 'chemistry', 'biology', 'earth science', 'environment', 'geology', 'astronomy',
+  'photosynthesis', 'ecosystem', 'organism', 'cell', 'dna', 'genetic', 'molecule', 'atom', 'chemical',
+  'plant', 'animal', 'climate', 'weather', 'force', 'energy', 'gravity', 'magnetism', 'electricity',
+  'english', 'grammar', 'literature', 'reading', 'writing', 'vocabulary', 'poem', 'novel', 'story',
+  'history', 'geography', 'civics', 'government', 'economics', 'sociology', 'culture', 'world',
+  'computer', 'programming', 'coding', 'technology', 'algorithm', 'code', 'software', 'website',
+  'art', 'music', 'physical education', 'sport', 'dance', 'drawing', 'painting', 'design',
+  'lesson', 'exam', 'test', 'quiz', 'assignment', 'homework', 'study', 'revision', 'project', 'research',
+  'curriculum', 'common core', 'ngss', 'teks', 'sat', 'act', 'ged', 'grade', 'class', 'school',
+  'teacher', 'student', 'tutor', 'tutoring', 'teaching', 'learning', 'education', 'subject',
+  'career', 'profession', 'job', 'skill', 'vocational', 'interview', 'resume',
+  'fraction', 'decimal', 'equation', 'formula', 'theorem', 'function', 'variable',
+  'sentence', 'paragraph', 'essay', 'composition', 'comprehension', 'thesis',
+  'solar system', 'planet', 'space', 'human body', 'digestion', 'respiration', 'nervous',
+  'noun', 'verb', 'adjective', 'adverb', 'tense', 'pronoun', 'preposition',
+  'addition', 'subtraction', 'multiplication', 'division', 'percent', 'measure',
+  'problem', 'solve', 'process', 'explain', 'define', 'describe', 'reason', 'cause', 'effect',
 ];
+
+const QUESTION_STARTERS = [
+  'what', 'what is', 'what are', 'what does', 'what do', 'what\'s', 'whats',
+  'how', 'how does', 'how do', 'how can', 'how is', 'how to', 'how does the',
+  'why', 'why is', 'why do', 'why does', 'why are',
+  'when', 'where', 'who', 'which', 'whom', 'whose',
+  'explain', 'define', 'describe', 'list', 'compare', 'contrast',
+  'summarise', 'summarize', 'outline', 'identify', 'discuss', 'give',
+  'can you', 'could you', 'would you', 'tell me', 'teach me', 'help me',
+];
+
+function isLikelyQuestion(input: string): boolean {
+  const trimmed = input.trim();
+  if (trimmed.endsWith('?')) return true;
+  const lower = trimmed.toLowerCase();
+  return QUESTION_STARTERS.some((starter) => lower.startsWith(starter + ' ') || lower === starter);
+}
 
 export interface SafetyCheck {
   passed: boolean;
@@ -73,7 +93,7 @@ export function checkInput(input: string): SafetyCheck {
   }
 
   const hasEducational = EDUCATIONAL_KEYWORDS.some((kw) => lower.includes(kw.toLowerCase()));
-  if (!hasEducational && lower.split(/\s+/).length > 4) {
+  if (!hasEducational && !isLikelyQuestion(input) && lower.split(/\s+/).length > 4) {
     return { passed: false, reason: 'Query does not appear educational', category: 'non_educational' };
   }
 

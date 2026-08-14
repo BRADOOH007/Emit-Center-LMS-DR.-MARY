@@ -6,10 +6,21 @@ import { getSessionUser } from '@/lib/auth';
 import { isAdminRole, writeAuditLog } from '@/lib/security';
 import { generateId, isValidEmail, sanitizeInput } from '@/lib/validation';
 import { generatePassword, ensureUniqueUsername } from '@/lib/credentials';
+import { sendWelcomeCredentialsEmail } from '@/lib/emails';
 import type { RelationshipType, Role } from '@/types';
 
 const CREATEABLE_ROLES: Role[] = ['student', 'parent', 'instructor', 'administrator'];
 const RELATIONSHIP_TYPES: RelationshipType[] = ['guardian', 'mother', 'father', 'sponsor'];
+
+function roleLabelFor(role: Role): string {
+  const map: Record<string, string> = {
+    student: 'Student',
+    parent: 'Parent/Guardian',
+    instructor: 'Instructor',
+    administrator: 'Administrator',
+  };
+  return map[role] ?? role;
+}
 
 function mapCreatedUser(user: {
   id: string;
@@ -107,6 +118,23 @@ export async function POST(request: NextRequest) {
       relationshipType: body.relationshipType,
       studentId: user.id,
     });
+  }
+
+  // Email the new account's credentials so they can sign in immediately.
+  sendWelcomeCredentialsEmail(email, fullName, {
+    username,
+    password,
+    roleLabel: roleLabelFor(role),
+  }).catch(() => {});
+
+  // If a brand-new parent account was auto-created, send its credentials too.
+  if (parentCredentials?.password && parentCredentials.username) {
+    const parentEmail = body.parentEmail!.trim().toLowerCase();
+    sendWelcomeCredentialsEmail(parentEmail, body.parentFullName?.trim() || parentEmail, {
+      username: parentCredentials.username,
+      password: parentCredentials.password,
+      roleLabel: 'Parent/Guardian',
+    }).catch(() => {});
   }
 
   // Assign an instructor to the selected courses.

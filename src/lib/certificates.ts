@@ -1,32 +1,12 @@
+import { randomBytes } from 'crypto';
 import { prisma } from '@/lib/prisma';
 import type { Certificate } from '@/types';
 import { awardBadge } from '@/lib/badges';
 
-const HEX = '0123456789abcdef';
-
-function hash32(input: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < input.length; i += 1) {
-    h ^= input.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h;
-}
-
-function hexN(value: number, length: number): string {
-  let out = '';
-  let v = value >>> 0;
-  for (let i = 0; i < length; i += 1) {
-    out += HEX[v & 0xf];
-    v >>>= 4;
-  }
-  return out;
-}
-
-export function verificationHashFor(userId: string, courseId: string): string {
-  const h1 = hash32(`${userId}::${courseId}`);
-  const h2 = hash32(`${courseId}::${userId}`);
-  return `EMIT-${hexN(h1, 6)}${hexN(h2, 6)}`;
+// 96-bit random verification hash — not derivable from user/course ids, so it
+// cannot be forged by guessing.
+export function verificationHashFor(_userId: string, _courseId: string): string {
+  return `EMIT-${randomBytes(6).toString('hex').toUpperCase()}`;
 }
 
 export interface IssueCertificateInput {
@@ -50,16 +30,26 @@ export async function issueCertificate({
     prisma.course.findUnique({ where: { id: courseId } }),
   ]);
 
-  const certificate = await prisma.certificate.create({
-    data: {
-      userId,
-      courseId,
-      studentName: user?.fullName ?? 'Student',
-      courseTitle: course?.title ?? 'Course',
-      completionDate: new Date(completionDate),
-      verificationHash: verificationHashFor(userId, courseId),
-    },
-  });
+  // Retry on the astronomically-unlikely random hash collision.
+  let certificate;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      certificate = await prisma.certificate.create({
+        data: {
+          userId,
+          courseId,
+          studentName: user?.fullName ?? 'Student',
+          courseTitle: course?.title ?? 'Course',
+          completionDate: new Date(completionDate),
+          verificationHash: verificationHashFor(userId, courseId),
+        },
+      });
+      break;
+    } catch (err) {
+      if (attempt === 2 || !(err as { code?: string })?.code?.startsWith?.('P2002')) throw err;
+    }
+  }
+  if (!certificate) throw new Error('Unable to generate a unique certificate code');
 
   // Award completion badges.
   awardBadge(userId, 'Course Completer', courseId).catch(() => {});

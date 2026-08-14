@@ -4,6 +4,7 @@ import { ok, badRequest, parseBody } from '@/lib/api-helpers';
 import { generateToken } from '@/lib/auth';
 import { isValidEmail } from '@/lib/validation';
 import { isRateLimited } from '@/lib/security';
+import { sendPasswordResetEmail } from '@/lib/emails';
 import { createHash } from 'crypto';
 
 const RESET_TTL_MS = 60 * 60 * 1000;
@@ -38,15 +39,14 @@ export async function POST(request: NextRequest) {
   });
 
   const devResetUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'}/reset-password?token=${token}`;
-  const resetUrl =
-    process.env.NODE_ENV === 'production'
-      ? undefined
-      : devResetUrl;
+  const resetUrl = process.env.NODE_ENV === 'production' ? devResetUrl : devResetUrl;
 
-  // In production, an email transport would send the link. In development we
-  // return it so the flow is fully testable end-to-end.
+  // Send the reset link by email in all environments. In development the link
+  // is also returned in the response so the flow is testable end-to-end.
+  sendPasswordResetEmail(email, user.fullName, resetUrl).catch(() => {});
+
   return ok({
     sent: true,
-    ...(resetUrl ? { resetUrl } : {}),
+    ...(process.env.NODE_ENV !== 'production' ? { resetUrl } : {}),
   });
 }
