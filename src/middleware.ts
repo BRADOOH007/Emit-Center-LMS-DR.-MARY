@@ -12,7 +12,7 @@ const ROLE_ROUTE_PREFIXES: Record<Role, string[]> = {
   parent: ['/dashboard/parent'],
 };
 
-const SUPER_ADMIN_ONLY_PREFIXES = ['/dashboard/admin/permissions', '/dashboard/admin/users'];
+const SUPER_ADMIN_ONLY_PREFIXES = ['/dashboard/admin/permissions'];
 
 function readRole(request: NextRequest): Role {
   const raw = request.cookies.get('emit_role')?.value;
