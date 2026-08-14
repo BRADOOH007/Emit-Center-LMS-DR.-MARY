@@ -29,6 +29,7 @@ import { UserAvatar } from '@/components/ui/UserAvatar';
 import { PageIntro, SectionPanel, StatCard } from '@/components/dashboard/primitives';
 import { useLocale } from '@/components/providers/AppProviders';
 import { useToast } from '@/components/ui/toast';
+import { LogoMark } from '@/components/ui/LogoMark';
 import type { Role } from '@/types';
 import { cn } from '@/lib/utils';
 
@@ -158,7 +159,7 @@ export function AdminUserDetail({ userId }: { userId: string }) {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24">
-        <Loader2 className="h-8 w-8 animate-spin text-gold-500" />
+        <LogoMark size={64} showLabel={false} />
       </div>
     );
   }

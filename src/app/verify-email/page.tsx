@@ -5,8 +5,9 @@ import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import { useEffect, useState } from 'react';
-import { ArrowLeft, BadgeCheck, Loader2, MailX } from 'lucide-react';
+import { ArrowLeft, BadgeCheck, MailX } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { LogoMark } from '@/components/ui/LogoMark';
 
 function VerifyEmailFlow() {
   const router = useRouter();
@@ -54,7 +55,7 @@ function VerifyEmailFlow() {
   if (status === 'loading') {
     return (
       <div className="panel flex items-center justify-center py-10">
-        <Loader2 aria-hidden="true" className="h-6 w-6 animate-spin text-text-muted" />
+        <LogoMark size={56} showLabel={false} />
       </div>
     );
   }

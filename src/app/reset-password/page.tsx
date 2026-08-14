@@ -7,6 +7,7 @@ import { Suspense } from 'react';
 import { ArrowLeft, CheckCircle2, Eye, EyeOff, Loader2, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/Button';
+import { LogoMark } from '@/components/ui/LogoMark';
 
 function ResetPasswordForm() {
   const router = useRouter();
@@ -160,7 +161,7 @@ export default function ResetPasswordPage() {
         <Suspense
           fallback={
             <div className="panel flex items-center justify-center py-10">
-              <Loader2 aria-hidden="true" className="h-5 w-5 animate-spin text-text-muted" />
+              <LogoMark size={56} showLabel={false} />
             </div>
           }
         >

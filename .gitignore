@@ -41,5 +41,5 @@ next-env.d.ts
 data/uploads/
 
 # local run artifacts
-logs-server.out
+logs-server.*
 

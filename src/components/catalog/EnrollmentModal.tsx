@@ -15,6 +15,7 @@ import type { Course, SupportedCurrency } from '@/types';
 import { CURRENCY_SYMBOLS } from '@/lib/i18n/currency';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { LogoMark } from '@/components/ui/LogoMark';
 import { cn } from '@/lib/utils';
 import { useSession } from '@/components/providers/AppProviders';
 
@@ -437,8 +438,10 @@ function EnrollmentModal({
 
             {step === 'confirming' && (
               <div className="flex flex-col items-center justify-center px-5 py-12 text-center">
-                <Loader2 aria-hidden="true" className="mb-4 h-10 w-10 animate-spin text-gold-500" />
-                <p className="text-lg font-semibold text-text-primary">Processing your payment</p>
+                <div className="mb-4">
+                  <LogoMark size={64} showLabel={false} />
+                </div>
+                  <p className="text-lg font-semibold text-text-primary">Processing your payment</p>
                 <p className="mt-1 text-sm text-text-muted">Please don&apos;t close this window.</p>
               </div>
             )}
