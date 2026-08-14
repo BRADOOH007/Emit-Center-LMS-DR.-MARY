@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Video,
   Monitor,
@@ -14,6 +14,13 @@ import {
   Plus,
   Loader2,
   CheckCircle2,
+  PenLine,
+  Eraser,
+  Trash2,
+  Download,
+  Users,
+  MonitorUp,
+  StopCircle,
 } from 'lucide-react';
 import type { ChatMessage, LivePlatform, LiveSession } from '@/types';
 import { useLocale, useSession } from '@/components/providers/AppProviders';
@@ -37,12 +44,14 @@ export function VirtualClassModal({
   session: LiveSession;
   onClose: () => void;
 }) {
-  const [tab, setTab] = useState<'agenda' | 'chat'>('agenda');
+  const [tab, setTab] = useState<'agenda' | 'chat' | 'whiteboard' | 'breakout'>('agenda');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [liveStatus, setLiveStatus] = useState<LiveSession['status']>(session.status);
   const [loadingMessages, setLoadingMessages] = useState(true);
+  const [room, setRoom] = useState<string | null>(null);
+  const [rooms, setRooms] = useState<string[]>(['Room 1', 'Room 2', 'Room 3']);
   const { formatDateTime } = useLocale();
   const { user } = useSession();
 
@@ -54,7 +63,7 @@ export function VirtualClassModal({
     let active = true;
     async function load() {
       try {
-        const res = await fetch(`/api/live/${session.id}`, { cache: 'no-store' });
+        const res = await fetch(`/api/live/${session.id}${room ? `?room=${encodeURIComponent(room)}` : ''}`, { cache: 'no-store' });
         const json = await res.json();
         if (active && json.success) {
           setMessages(json.data.messages ?? []);
@@ -68,7 +77,7 @@ export function VirtualClassModal({
     return () => {
       active = false;
     };
-  }, [session.id]);
+  }, [session.id, room]);
 
   const handleSendMessage = useCallback(async () => {
     if (!newMessage.trim() || sending) return;
@@ -77,7 +86,7 @@ export function VirtualClassModal({
       const res = await fetch(`/api/live/${session.id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: newMessage.trim() }),
+        body: JSON.stringify({ content: newMessage.trim(), room: room ?? undefined }),
       });
       const json = await res.json();
       if (json.success) {
@@ -87,9 +96,22 @@ export function VirtualClassModal({
     } finally {
       setSending(false);
     }
-  }, [newMessage, sending, session.id]);
+  }, [newMessage, sending, session.id, room]);
 
   const canStart = CREATOR_ROLES.includes(user.activeRole);
+
+  useEffect(() => {
+    if (!isLive) return;
+    const record = () =>
+      fetch('/api/participation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'live_join', courseId: session.courseId, liveSessionId: session.id }),
+      }).catch(() => {});
+    record();
+    const t = setTimeout(record, 1500);
+    return () => clearTimeout(t);
+  }, [isLive, session.courseId, session.id]);
 
   const handleStart = useCallback(async () => {
     const next = isLive ? 'ended' : 'live';
@@ -133,6 +155,7 @@ export function VirtualClassModal({
 
           <div className="flex flex-1 overflow-hidden">
             <div className="flex-1 flex flex-col items-center justify-center bg-brown-900/95 p-8">
+              <ScreenShare />
               <div className={cn('mb-6 flex h-24 w-24 items-center justify-center rounded-2xl', platformMeta.bgClass)}>
                 <Video aria-hidden="true" className="h-12 w-12 text-gold-400" />
               </div>
@@ -173,7 +196,7 @@ export function VirtualClassModal({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setTab('chat')}
+                  onClick={() => { setRoom(null); setTab('chat'); }}
                   className={cn(
                     'flex flex-1 items-center justify-center gap-1.5 py-3 text-sm font-medium transition-colors',
                     tab === 'chat'
@@ -183,6 +206,34 @@ export function VirtualClassModal({
                 >
                   <MessageCircle aria-hidden="true" className="h-4 w-4" />
                   Chat
+                </button>
+              </div>
+              <div className="flex border-b border-line">
+                <button
+                  type="button"
+                  onClick={() => setTab('whiteboard')}
+                  className={cn(
+                    'flex flex-1 items-center justify-center gap-1.5 py-3 text-sm font-medium transition-colors',
+                    tab === 'whiteboard'
+                      ? 'text-gold-700 dark:text-gold-300 border-b-2 border-gold-600'
+                      : 'text-text-muted hover:text-text-primary',
+                  )}
+                >
+                  <PenLine aria-hidden="true" className="h-4 w-4" />
+                  Whiteboard
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTab('breakout')}
+                  className={cn(
+                    'flex flex-1 items-center justify-center gap-1.5 py-3 text-sm font-medium transition-colors',
+                    tab === 'breakout'
+                      ? 'text-gold-700 dark:text-gold-300 border-b-2 border-gold-600'
+                      : 'text-text-muted hover:text-text-primary',
+                  )}
+                >
+                  <Users aria-hidden="true" className="h-4 w-4" />
+                  Breakout
                 </button>
               </div>
 
@@ -197,6 +248,15 @@ export function VirtualClassModal({
                     sending={sending}
                     loading={loadingMessages}
                     currentUserId={user.id}
+                  />
+                )}
+                {tab === 'whiteboard' && <WhiteboardPanel />}
+                {tab === 'breakout' && (
+                  <BreakoutPanel
+                    rooms={rooms}
+                    setRooms={setRooms}
+                    activeRoom={room}
+                    setActiveRoom={(r) => { setRoom(r); setTab('chat'); }}
                   />
                 )}
               </div>
@@ -221,6 +281,221 @@ function AgendaPanel({ agenda }: { agenda: string[] }) {
       )) : (
         <p className="p-4 text-sm text-text-muted">No agenda items yet.</p>
       )}
+    </div>
+  );
+}
+
+function WhiteboardPanel() {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const drawing = useRef(false);
+  const last = useRef<{ x: number; y: number } | null>(null);
+  const [color, setColor] = useState('#e6c06b');
+  const [size, setSize] = useState(3);
+  const [tool, setTool] = useState<'pen' | 'eraser'>('pen');
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.fillStyle = '#1a1712';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }, []);
+
+  const getPos = (e: React.PointerEvent) => {
+    const canvas = canvasRef.current!;
+    const rect = canvas.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  };
+
+  const onDown = (e: React.PointerEvent) => {
+    drawing.current = true;
+    last.current = getPos(e);
+  };
+  const onMove = (e: React.PointerEvent) => {
+    if (!drawing.current || !last.current) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
+    const pos = getPos(e);
+    ctx.beginPath();
+    ctx.moveTo(last.current.x, last.current.y);
+    ctx.lineTo(pos.x, pos.y);
+    ctx.strokeStyle = tool === 'eraser' ? '#1a1712' : color;
+    ctx.lineWidth = tool === 'eraser' ? size * 4 : size;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+    last.current = pos;
+  };
+  const onUp = () => {
+    drawing.current = false;
+    last.current = null;
+  };
+
+  const clear = () => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
+    ctx.fillStyle = '#1a1712';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  };
+
+  const download = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const url = canvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'whiteboard.png';
+    a.click();
+  };
+
+  return (
+    <div className="flex h-full flex-col p-3">
+      <div className="mb-2 flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => setTool('pen')}
+          className={cn('btn btn-ghost btn-sm !px-2', tool === 'pen' && 'bg-gold-500/15 text-gold-700 dark:text-gold-300')}
+        >
+          <PenLine aria-hidden="true" className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setTool('eraser')}
+          className={cn('btn btn-ghost btn-sm !px-2', tool === 'eraser' && 'bg-gold-500/15 text-gold-700 dark:text-gold-300')}
+        >
+          <Eraser aria-hidden="true" className="h-4 w-4" />
+        </button>
+        <input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="h-7 w-7 cursor-pointer rounded border border-line" aria-label="Pen color" />
+        <input type="range" min={1} max={10} value={size} onChange={(e) => setSize(Number(e.target.value))} className="w-16" aria-label="Stroke size" />
+        <button type="button" onClick={clear} className="btn btn-ghost btn-sm !px-2" aria-label="Clear whiteboard">
+          <Trash2 aria-hidden="true" className="h-4 w-4" />
+        </button>
+        <button type="button" onClick={download} className="btn btn-ghost btn-sm !px-2" aria-label="Download whiteboard">
+          <Download aria-hidden="true" className="h-4 w-4" />
+        </button>
+      </div>
+      <canvas
+        ref={canvasRef}
+        width={280}
+        height={400}
+        className="w-full flex-1 cursor-crosshair rounded-lg border border-line"
+        onPointerDown={onDown}
+        onPointerMove={onMove}
+        onPointerUp={onUp}
+        onPointerLeave={onUp}
+      />
+    </div>
+  );
+}
+
+function BreakoutPanel({
+  rooms,
+  setRooms,
+  activeRoom,
+  setActiveRoom,
+}: {
+  rooms: string[];
+  setRooms: (rooms: string[]) => void;
+  activeRoom: string | null;
+  setActiveRoom: (room: string) => void;
+}) {
+  const [newRoom, setNewRoom] = useState('');
+
+  const addRoom = () => {
+    const name = newRoom.trim();
+    if (!name) return;
+    setRooms([...rooms, name]);
+    setNewRoom('');
+  };
+
+  return (
+    <div className="space-y-2 p-4">
+      <p className="text-xs text-text-muted">Break into smaller discussion rooms, then rejoin the main chat.</p>
+      <div className="flex gap-2">
+        <input
+          className="input !py-1.5 flex-1 text-sm"
+          placeholder="New room name…"
+          value={newRoom}
+          onChange={(e) => setNewRoom(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && addRoom()}
+        />
+        <Button size="sm" variant="outline" onClick={addRoom}>
+          <Plus aria-hidden="true" className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+      {rooms.map((r) => (
+        <button
+          key={r}
+          type="button"
+          onClick={() => setActiveRoom(r)}
+          className={cn(
+            'flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-sm transition-colors',
+            activeRoom === r ? 'border-gold-500 bg-gold-500/10 text-gold-700 dark:text-gold-300' : 'border-line text-text-primary hover:bg-line-soft',
+          )}
+        >
+          <span className="flex items-center gap-2">
+            <Users aria-hidden="true" className="h-4 w-4" />
+            {r}
+          </span>
+          {activeRoom === r && <Badge variant="gold">Joined</Badge>}
+        </button>
+      ))}
+      {activeRoom && (
+        <Button variant="outline" size="sm" fullWidth onClick={() => setActiveRoom(activeRoom)}>
+          Return to main chat
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function ScreenShare() {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [sharing, setSharing] = useState(false);
+  const [error, setError] = useState('');
+
+  const start = async () => {
+    setError('');
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => {});
+      }
+      stream.getVideoTracks()[0]?.addEventListener('ended', stop);
+      setSharing(true);
+    } catch {
+      setError('Screen share was cancelled or is not supported in this browser.');
+    }
+  };
+
+  const stop = () => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setSharing(false);
+  };
+
+  return (
+    <div className="mb-4 flex flex-col items-center">
+      {sharing && (
+        <div className="mb-3 w-full max-w-md overflow-hidden rounded-lg border border-gold-500/40">
+          <video ref={videoRef} autoPlay muted className="w-full" />
+          <button type="button" onClick={stop} className="flex w-full items-center justify-center gap-1.5 bg-red-600/90 py-1.5 text-xs font-semibold text-white">
+            <StopCircle aria-hidden="true" className="h-3.5 w-3.5" /> Stop sharing
+          </button>
+        </div>
+      )}
+      {!sharing && (
+        <button type="button" onClick={start} className="btn btn-outline btn-sm gap-2 border-gold-500/50 text-gold-300">
+          <MonitorUp aria-hidden="true" className="h-4 w-4" /> Share screen
+        </button>
+      )}
+      {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
     </div>
   );
 }

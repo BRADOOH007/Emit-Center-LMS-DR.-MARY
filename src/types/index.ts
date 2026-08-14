@@ -33,6 +33,7 @@ export interface User {
   fullName: string;
   name: string;
   email: string;
+  username?: string;
   avatarUrl?: string;
   phone?: string;
   countryCode?: string;
@@ -71,6 +72,22 @@ export interface CourseSchedule {
   timeSlots: { start: string; end: string; timezone: string }[];
 }
 
+export interface CoursePrerequisite {
+  id: string;
+  courseId: string;
+  prerequisiteId: string;
+  required: boolean;
+  prerequisite?: Pick<Course, 'id' | 'title' | 'subject'>;
+}
+
+export interface CourseStandard {
+  id: string;
+  courseId: string;
+  authority: string;
+  code: string;
+  description?: string;
+}
+
 export interface Course {
   id: string;
   title: string;
@@ -88,6 +105,9 @@ export interface Course {
   instructorId: string;
   instructor?: User;
   pricing: CoursePrice[];
+  prerequisites?: CoursePrerequisite[];
+  prerequisiteOf?: CoursePrerequisite[];
+  standards?: CourseStandard[];
   isPublished: boolean;
   createdAt: string;
 }
@@ -288,6 +308,7 @@ export interface ChatMessage {
   userName: string;
   content: string;
   timestamp: string;
+  room?: string;
 }
 
 export type QuizQuestionType = 'multiple-choice' | 'true-false' | 'short-answer' | 'essay' | 'file-upload' | 'rubric';
@@ -411,6 +432,37 @@ export interface Certificate {
   completionDate: string;
   verificationHash: string;
   issuedAt: string;
+}
+
+export interface Badge {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  icon: string;
+  earnedAt?: string;
+  courseId?: string;
+  courseTitle?: string;
+}
+
+export interface TranscriptCourse {
+  courseId: string;
+  courseTitle: string;
+  subject: string;
+  status: string;
+  overallPercentage: number | null;
+  letterGrade: string | null;
+  completedAt: string | null;
+  certificateHash: string | null;
+}
+
+export interface Transcript {
+  studentName: string;
+  studentEmail: string;
+  courses: TranscriptCourse[];
+  overallGpa: string | null;
+  totalCredits: number;
+  certificatesCount: number;
 }
 
 export interface AnalyticsMetrics {

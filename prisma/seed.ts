@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 
 async function main() {
   const email = 'marongo@learn.emitcenter.com';
-  const password = process.env.SEED_PASSWORD || 'ChangeMe123!';
+  const password = process.env.SEED_PASSWORD || 'Root26';
   const passwordHash = hashSync(password, 12);
 
   try {
@@ -13,13 +13,16 @@ async function main() {
       where: { email },
       update: {
         passwordHash,
+        fullName: 'Larry Marongo',
+        username: 'larry.marongo',
         roles: ['super_admin'],
         activeRole: 'super_admin',
         emailVerifiedAt: new Date(),
       },
       create: {
         email,
-        fullName: 'Mar Ongo',
+        fullName: 'Larry Marongo',
+        username: 'larry.marongo',
         passwordHash,
         roles: ['super_admin'],
         activeRole: 'super_admin',

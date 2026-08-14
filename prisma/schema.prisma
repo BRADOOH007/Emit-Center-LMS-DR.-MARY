@@ -65,6 +65,7 @@ model User {
   id              String    @id @default(cuid())
   fullName        String
   email           String    @unique
+  username        String?   @unique
   passwordHash    String
   avatarUrl       String?
   phone           String?
@@ -105,6 +106,9 @@ model User {
   chatMessages      ChatMessage[]       @relation("UserChats")
   discussionThreads DiscussionThread[]  @relation("UserThreads")
   discussionReplies DiscussionReply[]   @relation("UserReplies")
+  generations       AIGeneratedContent[] @relation("UserGenerations")
+  participationLogs ParticipationLog[]
+  badges            UserBadge[]
 }
 
 model Session {
@@ -203,11 +207,85 @@ model Course {
   liveSessions    LiveSession[]       @relation("CourseLive")
   quizzes         Quiz[]              @relation("CourseQuizzes")
   discussionThreads DiscussionThread[] @relation("CourseThreads")
+  generations     AIGeneratedContent[] @relation("CourseGenerations")
+  prerequisites   CoursePrerequisite[]  @relation("CoursePrereqs")
+  prerequisiteOf  CoursePrerequisite[]  @relation("PrereqOf")
+  standards       CourseStandard[]      @relation("CourseStandards")
 
   @@index([instructorId])
   @@index([format])
   @@index([subject])
   @@index([ageLevel])
+}
+
+model CoursePrerequisite {
+  id             String   @id @default(cuid())
+  courseId       String
+  prerequisiteId String
+  required       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  course       Course @relation("CoursePrereqs", fields: [courseId], references: [id], onDelete: Cascade)
+  prerequisite Course @relation("PrereqOf", fields: [prerequisiteId], references: [id], onDelete: Cascade)
+
+  @@unique([courseId, prerequisiteId])
+  @@index([courseId])
+  @@index([prerequisiteId])
+}
+
+model CourseStandard {
+  id          String  @id @default(cuid())
+  courseId    String
+  authority   String  // e.g. TEKS, B.E.S.T., NGSS, Common Core
+  code        String
+  description String?
+  createdAt   DateTime @default(now())
+
+  course Course @relation("CourseStandards", fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([courseId, authority, code])
+  @@index([courseId])
+  @@index([authority])
+}
+
+model ParticipationLog {
+  id            String   @id @default(cuid())
+  userId        String
+  courseId      String?
+  liveSessionId String?
+  action        String   // 'login' | 'live_join' | 'lesson_view'
+  createdAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([courseId])
+  @@index([createdAt])
+}
+
+model Badge {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String
+  category    String   @default("achievement") // achievement | mastery | participation
+  icon        String   @default("award")
+  createdAt   DateTime @default(now())
+
+  earnedBy UserBadge[]
+}
+
+model UserBadge {
+  id        String   @id @default(cuid())
+  userId    String
+  badgeId   String
+  courseId  String?
+  earnedAt  DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge Badge @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([badgeId])
 }
 
 model CoursePrice {
@@ -564,6 +642,7 @@ model LiveSession {
 model ChatMessage {
   id        String   @id @default(cuid())
   sessionId String?
+  room      String?
   userId    String
   userName  String
   content   String   @db.Text
@@ -573,6 +652,7 @@ model ChatMessage {
   user    User         @relation("UserChats", fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([sessionId])
+  @@index([sessionId, room])
 }
 
 model DiscussionThread {
@@ -644,4 +724,23 @@ model QuizAttempt {
 
   quiz Quiz @relation(fields: [quizId], references: [id], onDelete: Cascade)
   user User @relation("UserQuizzes", fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AIGeneratedContent {
+  id        String   @id @default(cuid())
+  userId    String
+  courseId  String?
+  type      String   // 'exam' | 'assignment' | 'presentation'
+  title     String
+  content   Json?    // the generated artifact (questions, assignment fields, slides, ...)
+  metadata  Json?    // subject, grade, topic, difficulty, courseId, slideCount, etc.
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User    @relation("UserGenerations", fields: [userId], references: [id], onDelete: Cascade)
+  course Course? @relation("CourseGenerations", fields: [courseId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([courseId])
+  @@index([type])
 }

@@ -1,0 +1,24 @@
+{
+  "name": "EMIT Center Learning Portal",
+  "short_name": "EMIT LMS",
+  "description": "Empower, Mentor, Inspire, Transform. Access programs, courses, and classes at EMIT Center.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#121212",
+  "theme_color": "#C9A227",
+  "icons": [
+    {
+      "src": "/brand/emit-logo.png",
+      "sizes": "230x230",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/brand/emit-logo.png",
+      "sizes": "230x230",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -89,3 +89,33 @@ export async function POST(request: NextRequest) {
 
   return ok(submission);
 }
+
+export async function DELETE(request: NextRequest, { params }: { params: { courseId: string } }) {
+  const me = await getSessionUser();
+  if (!me) return forbid('Sign in required');
+  if (!me.roles.some((r) => r === 'administrator' || r === 'instructor' || r === 'super_admin')) {
+    return forbid('Only instructors and admins can delete assignments');
+  }
+
+  const body = await parseBody<{ assignmentId?: string }>(request).catch(() => null);
+  if (!body?.assignmentId) return badRequest('assignmentId is required');
+
+  const assignment = await prisma.assignment.findUnique({ where: { id: body.assignmentId } });
+  if (!assignment) return badRequest('Assignment not found');
+  if (assignment.courseId !== params.courseId) return badRequest('Assignment does not belong to this course');
+
+  const course = await prisma.course.findUnique({ where: { id: params.courseId }, select: { instructorId: true } });
+  const isOwner = me.roles.includes('administrator') || me.roles.includes('super_admin') || course?.instructorId === me.id;
+  if (!isOwner) return forbid('You do not have permission to delete this assignment');
+
+  await prisma.assignment.delete({ where: { id: body.assignmentId } });
+
+  await writeAuditLog({
+    userId: me.id,
+    action: 'assignment.deleted',
+    resourceType: 'assignment',
+    resourceId: body.assignmentId,
+  });
+
+  return ok({ success: true });
+}

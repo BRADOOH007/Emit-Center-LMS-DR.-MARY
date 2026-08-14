@@ -1,14 +1,15 @@
 import { PrismaClient, type RoleName } from '@prisma/client';
 import { hashSync } from 'bcryptjs';
+import { generateUsernameFromFullName } from '../src/lib/credentials';
 
 const prisma = new PrismaClient();
 
 function seedPassword(): string {
-  return process.env.SEED_PASSWORD || 'ChangeMe123!';
+  return process.env.SEED_PASSWORD || 'Root26';
 }
 
 const users = [
-  { email: 'marongo@learn.emitcenter.com', fullName: 'Mar Ongo', roles: ['super_admin'] as RoleName[], activeRole: 'super_admin' as const },
+  { email: 'marongo@learn.emitcenter.com', fullName: 'Larry Marongo', roles: ['super_admin'] as RoleName[], activeRole: 'super_admin' as const },
   { email: 'admin@emitcenter.com', fullName: 'Admin User', roles: ['administrator'] as RoleName[], activeRole: 'administrator' as const },
   { email: 'instructor@emitcenter.com', fullName: 'Sarah Instructor', roles: ['instructor'] as RoleName[], activeRole: 'instructor' as const },
   { email: 'student@emitcenter.com', fullName: 'Alex Student', roles: ['student'] as RoleName[], activeRole: 'student' as const },
@@ -26,6 +27,8 @@ async function main() {
       await prisma.user.update({
         where: { email: u.email },
         data: {
+          fullName: u.fullName,
+          username: existing.username ?? generateUsernameFromFullName(u.fullName),
           roles: u.roles,
           activeRole: u.activeRole,
           passwordHash,
@@ -38,6 +41,7 @@ async function main() {
         data: {
           email: u.email,
           fullName: u.fullName,
+          username: generateUsernameFromFullName(u.fullName),
           passwordHash,
           roles: u.roles,
           activeRole: u.activeRole,

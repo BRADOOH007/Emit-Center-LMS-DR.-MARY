@@ -33,13 +33,14 @@ function mapLiveSession(row: {
   };
 }
 
-function mapChatMessage(row: { id: string; userId: string; userName: string; content: string; timestamp: Date }): ChatMessage {
+function mapChatMessage(row: { id: string; userId: string; userName: string; content: string; timestamp: Date; room?: string | null }): ChatMessage {
   return {
     id: row.id,
     userId: row.userId,
     userName: row.userName,
     content: row.content,
     timestamp: row.timestamp.toISOString(),
+    room: row.room ?? undefined,
   };
 }
 
@@ -47,8 +48,10 @@ export async function GET(_req: NextRequest, { params }: { params: { sessionId: 
   const session = await prisma.liveSession.findUnique({ where: { id: params.sessionId } });
   if (!session) return notFound('Live session not found');
 
+  const room = _req.nextUrl.searchParams.get('room') ?? undefined;
+
   const messages = await prisma.chatMessage.findMany({
-    where: { sessionId: params.sessionId },
+    where: { sessionId: params.sessionId, ...(room ? { room } : { room: null }) },
     orderBy: { timestamp: 'asc' },
   });
 
@@ -63,12 +66,15 @@ export async function POST(request: NextRequest, { params }: { params: { session
   if (!user) return forbid('Sign in to join the conversation');
 
   try {
-    const body = await parseBody<{ content: string }>(request);
+    const body = await parseBody<{ content: string; room?: string }>(request);
     if (!body.content?.trim()) return badRequest('content is required');
+
+    const room = body.room ? sanitizeInput(body.room).slice(0, 40) : null;
 
     const created = await prisma.chatMessage.create({
       data: {
         sessionId: params.sessionId,
+        room,
         userId: user.id,
         userName: user.fullName,
         content: sanitizeInput(body.content).slice(0, 2000),

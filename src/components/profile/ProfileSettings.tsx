@@ -1,14 +1,15 @@
 'use client';
 
 import { useRef, useState, type ChangeEvent } from 'react';
-import { Camera, Check, Loader2, Trash2 } from 'lucide-react';
+import { Camera, Loader2, Trash2 } from 'lucide-react';
 import type { User, SupportedLocale, SupportedTimeZone, SupportedCurrency } from '@/types';
 import { ROLE_META } from '@/config/roles';
 import { CURRENCIES, LOCALE_OPTIONS, TIME_ZONES } from '@/lib/i18n/locale';
-import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { UserAvatar } from '@/components/ui/UserAvatar';
+import { useSession } from '@/components/providers/AppProviders';
+import { useToast } from '@/components/ui/toast';
 
 const ROLE_BADGE_VARIANT: Record<User['activeRole'], 'gold' | 'brown' | 'neutral' | 'success'> = {
   super_admin: 'gold',
@@ -42,6 +43,8 @@ function downscaleImage(file: File, maxSize = 512): Promise<string> {
 }
 
 export function ProfileSettings({ user }: { user: User }) {
+  const { refreshUser } = useSession();
+  const toast = useToast();
   const [name, setName] = useState(user.fullName);
   const [phone, setPhone] = useState(user.phone ?? '');
   const [locale, setLocale] = useState<SupportedLocale>(user.locale);
@@ -50,8 +53,6 @@ export function ProfileSettings({ user }: { user: User }) {
   const [avatarUrl, setAvatarUrl] = useState<string | undefined>(user.avatarUrl);
   const [avatarDraft, setAvatarDraft] = useState<string | undefined>(undefined);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const dirty =
@@ -68,9 +69,8 @@ export function ProfileSettings({ user }: { user: User }) {
     try {
       const dataUrl = await downscaleImage(file);
       setAvatarDraft(dataUrl);
-      setError('');
     } catch {
-      setError('Could not read that image. Please try another file.');
+      toast.error('Could not read that image', 'Please try another file.');
     }
   };
 
@@ -81,8 +81,6 @@ export function ProfileSettings({ user }: { user: User }) {
 
   const handleSave = async () => {
     setSaving(true);
-    setSaved(false);
-    setError('');
     try {
       const res = await fetch(`/api/users/${user.id}`, {
         method: 'PATCH',
@@ -98,14 +96,15 @@ export function ProfileSettings({ user }: { user: User }) {
       });
       const json = await res.json();
       if (!res.ok || !json.success) {
-        setError(json.error ?? 'Failed to save changes');
+        toast.error('Failed to save changes', json.error);
         return;
       }
       setAvatarUrl(avatarDraft ?? user.avatarUrl);
       setAvatarDraft(undefined);
-      setSaved(true);
+      toast.success('Changes saved');
+      await refreshUser();
     } catch {
-      setError('Network error. Please try again.');
+      toast.error('Network error', 'Please try again.');
     } finally {
       setSaving(false);
     }
@@ -143,7 +142,6 @@ export function ProfileSettings({ user }: { user: User }) {
                   <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
                   Revert
                 </Button>
-                {error && <span className="text-xs font-medium text-red-600 dark:text-red-400">{error}</span>}
               </div>
             )}
 
@@ -245,13 +243,6 @@ export function ProfileSettings({ user }: { user: User }) {
               'Save changes'
             )}
           </Button>
-          {saved && (
-            <span className={cn('inline-flex items-center gap-1.5 text-sm font-medium text-emerald-600 dark:text-emerald-400')}>
-              <Check aria-hidden="true" className="h-4 w-4" />
-              Saved
-            </span>
-          )}
-          {error && <span className="text-sm font-medium text-red-600 dark:text-red-400">{error}</span>}
         </section>
       </div>
     </div>

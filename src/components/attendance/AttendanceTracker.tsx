@@ -4,12 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   CheckCheck,
   Clock,
+  MonitorPlay,
   QrCode,
   UserCheck,
   UserX,
   UserMinus,
   Users,
   Search,
+  X,
 } from 'lucide-react';
 import type { AttendanceRecord, ClassSession, User } from '@/types';
 import { Badge } from '@/components/ui/Badge';
@@ -27,6 +29,7 @@ export function AttendanceTracker() {
   const [sessions, setSessions] = useState<ClassSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState('');
   const [showQrCode, setShowQrCode] = useState(false);
+  const [kioskMode, setKioskMode] = useState(false);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [fallbackUsers, setFallbackUsers] = useState<User[]>([]);
   const [search, setSearch] = useState('');
@@ -194,6 +197,14 @@ export function AttendanceTracker() {
         </div>
         <div className="flex items-center gap-2">
           <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setKioskMode(true)}
+          >
+            <MonitorPlay aria-hidden="true" className="h-4 w-4" />
+            Kiosk Mode
+          </Button>
+          <Button
             variant={showQrCode ? 'gold' : 'outline'}
             size="sm"
             onClick={() => setShowQrCode((prev) => !prev)}
@@ -259,6 +270,82 @@ export function AttendanceTracker() {
             );
           })}
         </div>
+      </div>
+
+      {kioskMode && (
+        <KioskMode
+          sessionId={selectedSessionId}
+          sessionTitle={selectedSession?.title}
+          users={enrolledUsers}
+          getUserStatus={getUserStatus}
+          onCheckIn={handleToggleStatus}
+          onClose={() => setKioskMode(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function KioskMode({
+  sessionId,
+  sessionTitle,
+  users,
+  getUserStatus,
+  onCheckIn,
+  onClose,
+}: {
+  sessionId: string;
+  sessionTitle?: string;
+  users: User[];
+  getUserStatus: (userId: string) => string | null;
+  onCheckIn: (userId: string, status: string) => void;
+  onClose: () => void;
+}) {
+  const present = users.filter((u) => getUserStatus(u.id) === 'present').length;
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-base-surface">
+      <div className="flex items-center justify-between border-b border-line px-5 py-3">
+        <div>
+          <p className="font-display text-lg font-bold text-text-primary">{sessionTitle ?? 'Attendance Kiosk'}</p>
+          <p className="text-xs text-text-muted">{present}/{users.length} checked in</p>
+        </div>
+        <button type="button" onClick={onClose} className="btn btn-ghost btn-sm !px-2" aria-label="Exit kiosk mode">
+          <X aria-hidden="true" className="h-5 w-5" />
+        </button>
+      </div>
+
+      <div className="scrollbar-thin flex-1 overflow-y-auto p-6">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {users.map((user) => {
+            const status = getUserStatus(user.id);
+            const isPresent = status === 'present';
+            return (
+              <button
+                key={user.id}
+                type="button"
+                disabled={!sessionId}
+                onClick={() => onCheckIn(user.id, status ?? '')}
+                className={cn(
+                  'flex flex-col items-center gap-2 rounded-2xl border-2 p-5 text-center transition-all',
+                  isPresent ? 'border-emerald-500 bg-emerald-500/10' : 'border-line bg-base-elevated hover:border-gold-500',
+                )}
+              >
+                <div className={cn(
+                  'flex h-14 w-14 items-center justify-center rounded-full text-lg font-bold',
+                  isPresent ? 'bg-emerald-500 text-white' : 'bg-gold-500/15 text-gold-700 dark:text-gold-300',
+                )}>
+                  {user.fullName.charAt(0).toUpperCase()}
+                </div>
+                <p className="text-sm font-semibold text-text-primary">{user.fullName}</p>
+                <Badge variant={isPresent ? 'success' : 'neutral'}>{isPresent ? 'Present' : 'Tap to check in'}</Badge>
+              </button>
+            );
+          })}
+        </div>
+        {users.length === 0 && (
+          <p className="py-16 text-center text-sm text-text-muted">No enrolled students found.</p>
+        )}
       </div>
     </div>
   );

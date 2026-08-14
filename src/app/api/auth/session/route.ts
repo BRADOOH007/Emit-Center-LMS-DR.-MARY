@@ -1,8 +1,13 @@
 import { NextResponse } from 'next/server';
 import { ok, badRequest, parseBody } from '@/lib/api-helpers';
-import { clearSessionCookies, createSessionCookie, verifyLogin } from '@/lib/auth';
-import { isValidEmail } from '@/lib/validation';
+import { clearSessionCookies, createSessionCookie, getSession, verifyLogin } from '@/lib/auth';
 import { isLoginRateLimited, writeAuditLog } from '@/lib/security';
+
+export async function GET() {
+  const session = await getSession();
+  if (!session) return ok({ user: null });
+  return ok({ user: session.user });
+}
 
 export async function POST(request: Request) {
   if (isLoginRateLimited(request)) {
@@ -12,15 +17,12 @@ export async function POST(request: Request) {
   try {
     const body = await parseBody<{ email?: string; password?: string }>(request);
     if (!body.email || !body.password) {
-      return badRequest('Email and password are required');
-    }
-    if (!isValidEmail(body.email)) {
-      return badRequest('Invalid email format');
+      return badRequest('Email/username and password are required');
     }
 
-    const user = await verifyLogin(body.email.trim().toLowerCase(), body.password);
+    const user = await verifyLogin(body.email, body.password);
     if (!user) {
-      return badRequest('Invalid email or password');
+      return badRequest('Invalid email/username or password');
     }
 
     const token = await createSessionCookie(user);

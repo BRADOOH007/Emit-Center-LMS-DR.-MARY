@@ -1,4 +1,5 @@
 import { CertificateArt } from '@/components/certificate/CertificateArt';
+import { CertificateActions } from '@/components/certificate/CertificateActions';
 import { getIssuedCertificates } from '@/lib/certificates';
 import { Badge } from '@/components/ui/Badge';
 
@@ -29,7 +30,7 @@ export default async function CertificateVerifyPage({ params }: { params: { hash
     <div className="flex min-h-screen items-center justify-center bg-base px-4 py-12">
       <div className="w-full max-w-2xl space-y-4">
         <CertificateArt certificate={cert} tone="emerald" />
-        <div className="flex items-center justify-center">
+        <div className="flex flex-wrap items-center justify-center gap-3">
           <Badge variant="success" dot>
             Verified — Issued{' '}
             {new Date(cert.issuedAt).toLocaleDateString('en-US', {
@@ -38,6 +39,7 @@ export default async function CertificateVerifyPage({ params }: { params: { hash
               year: 'numeric',
             })}
           </Badge>
+          <CertificateActions certificate={cert} showDownload showCopy={false} />
         </div>
         <p className="mt-2 text-center text-xs text-text-muted">
           This certificate was issued by EMIT Center Foundation. Verify authenticity at{' '}

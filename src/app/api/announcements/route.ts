@@ -4,6 +4,7 @@ import { ok, badRequest, forbid, notFound, parseBody } from '@/lib/api-helpers';
 import { getSessionUser } from '@/lib/auth';
 import { isAdminRole, writeAuditLog } from '@/lib/security';
 import { sanitizeInput } from '@/lib/validation';
+import { sendEmail, logDelivery } from '@/lib/delivery';
 
 export async function GET(request: NextRequest) {
   const me = await getSessionUser();
@@ -77,5 +78,42 @@ export async function POST(request: NextRequest) {
     resourceId: body.courseId,
   });
 
+  // Notify enrolled students (in-app + email delivery).
+  notifyEnrolled(body.courseId, body.title, body.body, me.id).catch(() => {});
+
   return ok(announcement, 201);
+}
+
+async function notifyEnrolled(courseId: string, title: string, bodyText: string, authorId: string) {
+  const enrolled = await prisma.enrollment.findMany({
+    where: { courseId, status: { in: ['active', 'completed'] } },
+    select: { userId: true },
+  });
+  const userIds = enrolled.map((e) => e.userId);
+
+  await prisma.notification.createMany({
+    data: userIds.map((userId) => ({
+      userId,
+      type: 'announcement',
+      title: `New announcement: ${title}`,
+      body: bodyText.slice(0, 500),
+      actionUrl: `/dashboard/student/courses`,
+    })),
+  });
+
+  const recipients = await prisma.user.findMany({
+    where: { id: { in: userIds }, emailVerifiedAt: { not: null } },
+    select: { id: true, email: true },
+  });
+
+  await Promise.all(
+    recipients.map(async (r) => {
+      await sendEmail({
+        to: r.email,
+        subject: `EMIT Center: ${title}`,
+        text: `${bodyText}\n\n— Your instructor`,
+      }).catch(() => {});
+      await logDelivery(r.id, 'email.notification', 'announcement', courseId).catch(() => {});
+    }),
+  );
 }

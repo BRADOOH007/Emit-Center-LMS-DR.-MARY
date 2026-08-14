@@ -8,8 +8,8 @@ const PROMPTS: Record<string, string> = {
   chat: 'What is photosynthesis? Explain in 2 sentences.',
   lesson_plan:
     'Create a Common Core aligned lesson plan for Grade 7 Mathematics on fractions. Return JSON with title, objectives, activities and assessment.',
-  scheme:
-    'Create a 4-week scheme of work for Grade 6 Science covering Plants, Animals and Environment. Return JSON with weekly topics.',
+  unit_plan:
+    'Create a 4-week unit plan for Grade 6 Science covering Plants, Animals and Environment. Return JSON with weekly topics.',
   presentation:
     'Create PowerPoint slide content for a Grade 9 History lesson on the American Revolution. Return JSON with 4 slides.',
   quiz:

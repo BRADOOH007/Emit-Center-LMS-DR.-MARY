@@ -2,11 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { MoreHorizontal, Search, ShieldCheck, Users } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { PageIntro, DataColumn, DataTable, SectionPanel, StatCard } from '@/components/dashboard/primitives';
 import { UserAvatar } from '@/components/ui/UserAvatar';
+import { useSession } from '@/components/providers/AppProviders';
+import { useToast } from '@/components/ui/toast';
 import type { RelationshipType, Role, User } from '@/types';
 
 const ROLE_TONES: Record<Role, 'gold' | 'brown' | 'neutral' | 'success'> = {
@@ -38,10 +41,13 @@ interface AdminCourseOption {
 }
 
 export function AdminUsers({ scope }: { scope?: Role }) {
+  const { user: currentUser } = useSession();
+  const isSuperAdmin = currentUser.roles.includes('super_admin');
+  const router = useRouter();
+  const toast = useToast();
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<Role | 'all'>(scope ?? 'all');
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [inviteMsg, setInviteMsg] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
   const [sending, setSending] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [invite, setInvite] = useState<{
@@ -93,11 +99,10 @@ export function AdminUsers({ scope }: { scope?: Role }) {
 
   const sendInvite = async () => {
     if (!invite.name.trim() || !invite.email.trim()) {
-      setInviteMsg({ tone: 'error', text: 'Full name and email are required.' });
+      toast.error('Missing information', 'Full name and email are required.');
       return;
     }
     setSending(true);
-    setInviteMsg(null);
     try {
       const res = await fetch('/api/admin/users', {
         method: 'POST',
@@ -118,7 +123,7 @@ export function AdminUsers({ scope }: { scope?: Role }) {
       });
       const json = await res.json().catch(() => ({ success: false, error: 'Server error' }));
       if (!res.ok || !json.success) {
-        setInviteMsg({ tone: 'error', text: json.error || 'Unable to create account.' });
+        toast.error('Unable to create account', json.error);
         return;
       }
       setInviteOpen(false);
@@ -132,16 +137,23 @@ export function AdminUsers({ scope }: { scope?: Role }) {
         courseIds: [],
       });
       loadUsers();
-      const temp = json.data?.tempPassword
-        ? ` ${invite.name.trim()} can sign in with the temporary password ${json.data.tempPassword}.`
-        : '';
-      setInviteMsg({
-        tone: 'success',
-        text: `${invite.role === 'student' ? 'Student' : ROLE_LABELS[invite.role]} account created for ${invite.email.trim()}.${temp}`,
-      });
-      window.setTimeout(() => setInviteMsg(null), 12000);
+      const d = json.data;
+      const roleLabel = invite.role === 'student' ? 'Student' : ROLE_LABELS[invite.role];
+      const credentials = [d?.username && `Username: ${d.username}`, d?.tempPassword && `Password: ${d.tempPassword}`]
+        .filter(Boolean)
+        .join(' · ');
+      const parentPart =
+        d?.parentUsername && d?.parentPassword
+          ? ` Parent account: ${d.parentUsername} / ${d.parentPassword}.`
+          : d?.parentUsername
+            ? ` Linked to existing parent ${d.parentUsername}.`
+            : '';
+      toast.success(
+        `${roleLabel} account created for ${invite.email.trim()}`,
+        [credentials, parentPart].filter(Boolean).join(' · ') || undefined,
+      );
     } catch {
-      setInviteMsg({ tone: 'error', text: 'Unable to create account. Please try again.' });
+      toast.error('Unable to create account', 'Please try again.');
     } finally {
       setSending(false);
     }
@@ -170,13 +182,13 @@ export function AdminUsers({ scope }: { scope?: Role }) {
       header: 'User',
       render: (user) => (
         <div className="flex items-center gap-3">
-          <Link href={`/dashboard/admin/users/${user.id}`} className="flex items-center gap-3 transition-opacity hover:opacity-80">
-            <UserAvatar name={user.fullName} size="sm" />
+          <div className="flex items-center gap-3">
+            <UserAvatar name={user.fullName} src={user.avatarUrl} size="sm" />
             <div className="min-w-0">
-              <p className="truncate font-medium text-text-primary hover:text-gold-600 dark:hover:text-gold-400">{user.fullName}</p>
+              <p className="truncate font-medium text-text-primary">{user.fullName}</p>
               <p className="truncate text-xs text-text-muted">{user.email}</p>
             </div>
-          </Link>
+          </div>
         </div>
       ),
     },
@@ -212,7 +224,7 @@ export function AdminUsers({ scope }: { scope?: Role }) {
       key: 'actions',
       header: '',
       render: (user) => (
-        <div className="relative">
+        <div className="relative" onClick={(e) => e.stopPropagation()}>
           <Button variant="ghost" size="sm" aria-label="More options" onClick={() => setMenuFor(menuFor === user.id ? null : user.id)}>
             <MoreHorizontal className="h-4 w-4" />
           </Button>
@@ -244,7 +256,11 @@ export function AdminUsers({ scope }: { scope?: Role }) {
 
   const isScoped = scope != null;
   const scopedLabel = scope ? ROLE_LABELS[scope] : '';
-  const inviteRoles: Role[] = scope ? [scope] : ['student', 'parent', 'instructor', 'administrator'];
+  const inviteRoles: Role[] = scope
+    ? [scope]
+    : isSuperAdmin
+      ? ['student', 'parent', 'instructor', 'administrator']
+      : ['student', 'parent', 'instructor'];
 
   return (
     <div className="space-y-6">
@@ -262,18 +278,6 @@ export function AdminUsers({ scope }: { scope?: Role }) {
           </Button>
         }
       />
-
-      {inviteMsg && (
-        <div
-          className={`rounded-lg border px-4 py-3 text-sm ${
-            inviteMsg.tone === 'success'
-              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-              : 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300'
-          }`}
-        >
-          {inviteMsg.text}
-        </div>
-      )}
 
       {inviteOpen && (
         <SectionPanel title={`Create ${isScoped ? scopedLabel : 'User'} Account`} icon={Users}>
@@ -357,7 +361,7 @@ export function AdminUsers({ scope }: { scope?: Role }) {
               </div>
               <p className="mt-2 text-xs text-text-muted">
                 Providing an email creates a parent account (if none exists) and links it to this student. Parents sign in
-                with the temporary password <span className="font-mono">ChangeMe123!</span>.
+                with a generated temporary password.
               </p>
             </div>
           )}
@@ -390,8 +394,7 @@ export function AdminUsers({ scope }: { scope?: Role }) {
             <Button variant="outline" onClick={() => setInviteOpen(false)}>Cancel</Button>
           </div>
           <p className="mt-3 text-xs text-text-muted">
-            New accounts are verified automatically and sign in with the temporary password{' '}
-            <span className="font-mono">ChangeMe123!</span>.
+            New accounts are verified automatically and sign in with a generated temporary password.
           </p>
         </SectionPanel>
       )}
@@ -428,7 +431,12 @@ export function AdminUsers({ scope }: { scope?: Role }) {
       </div>
 
       <SectionPanel>
-        <DataTable rows={filtered} columns={columns} emptyMessage={loading ? 'Loading users…' : 'No users match your filters.'} />
+        <DataTable
+          rows={filtered}
+          columns={columns}
+          onRowClick={(user) => router.push(`/dashboard/admin/users/${user.id}`)}
+          emptyMessage={loading ? 'Loading users…' : 'No users match your filters.'}
+        />
       </SectionPanel>
     </div>
   );

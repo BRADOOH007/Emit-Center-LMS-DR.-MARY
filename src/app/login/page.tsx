@@ -6,20 +6,20 @@ import { ArrowRight, Eye, EyeOff, Loader2, LogIn } from 'lucide-react';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
+import { useToast } from '@/components/ui/toast';
 
 export default function LoginPage() {
   const router = useRouter();
+  const toast = useToast();
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!email.trim() || !password) return;
     setLoading(true);
-    setError('');
     try {
       const res = await fetch('/api/auth/session', {
         method: 'POST',
@@ -30,10 +30,10 @@ export default function LoginPage() {
       if (json.success) {
         router.push('/dashboard');
       } else {
-        setError(json.error ?? 'Invalid email or password');
+        toast.error('Unable to sign in', json.error ?? 'Invalid email/username or password');
       }
     } catch {
-      setError('Network error. Please try again.');
+      toast.error('Network error', 'Please try again.');
     } finally {
       setLoading(false);
     }
@@ -64,12 +64,12 @@ export default function LoginPage() {
         >
           <div className="space-y-1.5">
             <label htmlFor="email" className="label">
-              Email address
+              Email or username
             </label>
             <input
               id="email"
-              type="email"
-              autoComplete="email"
+              type="text"
+              autoComplete="username"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -112,12 +112,6 @@ export default function LoginPage() {
               </button>
             </div>
           </div>
-
-          {error && (
-            <div className="rounded-lg bg-red-500/10 px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400">
-              {error}
-            </div>
-          )}
 
           <Button type="submit" variant="gold" size="lg" fullWidth disabled={loading}>
             {loading ? (

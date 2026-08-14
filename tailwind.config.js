@@ -81,12 +81,27 @@ module.exports = {
           from: { opacity: '0', transform: 'translateY(8px)' },
           to: { opacity: '1', transform: 'translateY(0)' },
         },
+        'logo-bounce': {
+          '0%, 100%': { transform: 'translateY(0)' },
+          '50%': { transform: 'translateY(-10px)' },
+        },
+        'toast-in': {
+          from: { opacity: '0', transform: 'translateX(16px) scale(0.98)' },
+          to: { opacity: '1', transform: 'translateX(0) scale(1)' },
+        },
+        'toast-out': {
+          from: { opacity: '1', transform: 'translateX(0) scale(1)' },
+          to: { opacity: '0', transform: 'translateX(16px) scale(0.98)' },
+        },
       },
       animation: {
         'fade-in': 'fade-in 150ms ease-out',
         'scale-in': 'scale-in 140ms cubic-bezier(0.16, 1, 0.3, 1)',
         'drawer-in': 'drawer-in 240ms cubic-bezier(0.16, 1, 0.3, 1)',
         'slide-up': 'slide-up 200ms cubic-bezier(0.16, 1, 0.3, 1)',
+        'logo-bounce': 'logo-bounce 2.2s ease-in-out infinite',
+        'toast-in': 'toast-in 200ms cubic-bezier(0.16, 1, 0.3, 1)',
+        'toast-out': 'toast-out 180ms ease-in forwards',
       },
     },
   },

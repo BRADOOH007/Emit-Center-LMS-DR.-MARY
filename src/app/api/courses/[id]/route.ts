@@ -9,6 +9,11 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     include: {
       pricing: true,
       instructor: { select: { id: true, fullName: true, email: true } },
+      prerequisites: {
+        include: { prerequisite: { select: { id: true, title: true, subject: true } } },
+        orderBy: { createdAt: 'asc' },
+      },
+      standards: { orderBy: { authority: 'asc' } },
       sessions: {
         orderBy: { date: 'asc' },
         take: 20,
@@ -39,6 +44,20 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     instructorId: course.instructorId,
     instructor: course.instructor,
     pricing: course.pricing.map((p) => ({ id: p.id, currency: p.currency, amount: p.amount })),
+    prerequisites: course.prerequisites.map((p) => ({
+      id: p.id,
+      courseId: p.courseId,
+      prerequisiteId: p.prerequisiteId,
+      required: p.required,
+      prerequisite: p.prerequisite,
+    })),
+    standards: course.standards.map((s) => ({
+      id: s.id,
+      courseId: s.courseId,
+      authority: s.authority,
+      code: s.code,
+      description: s.description,
+    })),
     isPublished: course.isPublished,
     createdAt: course.createdAt.toISOString(),
   });

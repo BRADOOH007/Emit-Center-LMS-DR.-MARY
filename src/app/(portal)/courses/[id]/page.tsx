@@ -1,5 +1,7 @@
 import { notFound } from 'next/navigation';
 import {
+  ArrowRight,
+  BookMarked,
   MapPin,
   Video,
   Clock,
@@ -7,6 +9,7 @@ import {
   GraduationCap,
   CalendarDays,
 } from 'lucide-react';
+import Link from 'next/link';
 import { getSession } from '@/lib/auth';
 import { CURRENCY_SYMBOLS } from '@/lib/i18n/currency';
 import { Badge } from '@/components/ui/Badge';
@@ -90,6 +93,44 @@ export default async function CourseDetailPage({ params }: { params: { id: strin
               {course.description}
             </p>
           </div>
+
+          {(course.prerequisites?.length ?? 0) > 0 && (
+            <div>
+              <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wider text-text-muted">
+                <ArrowRight aria-hidden="true" className="h-4 w-4 text-gold-600 dark:text-gold-400" />
+                Prerequisites
+              </h2>
+              <ul className="space-y-1.5 text-sm text-text-primary">
+                {course.prerequisites?.map((p) => (
+                  <li key={p.id} className="flex items-center gap-2">
+                    <span className="h-1.5 w-1.5 rounded-full bg-gold-500" />
+                    <Link href={`/courses/${p.prerequisite?.id ?? '#'}`} className="text-gold-700 underline-offset-2 hover:underline dark:text-gold-300">
+                      {p.prerequisite?.title}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {(course.standards?.length ?? 0) > 0 && (
+            <div>
+              <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wider text-text-muted">
+                <BookMarked aria-hidden="true" className="h-4 w-4 text-gold-600 dark:text-gold-400" />
+                Standards alignment
+              </h2>
+              <ul className="space-y-1.5">
+                {course.standards?.map((s) => (
+                  <li key={s.id} className="flex flex-wrap items-center gap-2 text-sm text-text-primary">
+                    <Badge variant="neutral">{s.authority} · {s.code}</Badge>
+                    {s.description && (
+                      <span className="text-xs text-text-muted">{s.description}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <div className="grid gap-4 sm:grid-cols-2">
             {course.format === 'onsite' || course.format === 'hybrid' ? (

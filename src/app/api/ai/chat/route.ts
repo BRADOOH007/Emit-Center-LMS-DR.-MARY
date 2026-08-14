@@ -15,7 +15,7 @@ export async function POST(request: Request) {
     message,
     context,
     lessonContext,
-    schemeContext,
+    unitContext,
     assignmentsContext,
     autoTeach,
     lessonContent,
@@ -82,9 +82,9 @@ Be practical, actionable, and encouraging. Reference the US curriculum and local
       const { title, subject: ls, grade: lg, content } = lessonContext.lessonPlan;
       contextInfo += `\n\nCURRENT LESSON: "${title}" — ${ls}, ${lg}.\nContent summary: ${(content?.generatedContent || '').slice(0, 400)}`;
     }
-    if (schemeContext?.schemeOfWork) {
-      const { title, subject: ss, grade: sg } = schemeContext.schemeOfWork;
-      contextInfo += `\n\nCURRENT SCHEME: "${title}" — ${ss}, ${sg}.`;
+    if (unitContext?.unitPlan) {
+      const { title, subject: ss, grade: sg } = unitContext.unitPlan;
+      contextInfo += `\n\nCURRENT UNIT: "${title}" — ${ss}, ${sg}.`;
     }
     if (assignmentsContext?.assignments?.length) {
       const names = assignmentsContext.assignments.slice(0, 3).map((a: any) => a.title).join(', ');

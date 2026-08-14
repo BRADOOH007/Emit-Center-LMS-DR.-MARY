@@ -3,6 +3,7 @@ import {
   Award,
   BarChart3,
   BookOpen,
+  BookMarked,
   CalendarDays,
   CircleDollarSign,
   ClipboardList,
@@ -103,7 +104,8 @@ export const SIDEBAR_NAV: Record<Role, NavSection[]> = {
       items: [
         { label: 'My Classes', href: '/dashboard/instructor/classes', icon: CalendarDays },
         { label: 'My Courses', href: '/dashboard/instructor/courses', icon: BookOpen },
-        { label: 'Exams & Assessments', href: '/dashboard/instructor/assessments', icon: ClipboardList },
+        { label: 'Content Library', href: '/dashboard/instructor/content', icon: BookMarked },
+        { label: 'Exams & Assignments', href: '/dashboard/instructor/assessments', icon: ClipboardList },
         { label: 'Student Roster', href: '/dashboard/instructor/roster', icon: UserRound },
         { label: 'Grades', href: '/dashboard/instructor/grades', icon: ClipboardList },
       ],

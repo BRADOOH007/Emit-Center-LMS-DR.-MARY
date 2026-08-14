@@ -5,6 +5,7 @@ import { created, badRequest, forbid, parseBody } from '@/lib/api-helpers';
 import { getSessionUser } from '@/lib/auth';
 import { isAdminRole, writeAuditLog } from '@/lib/security';
 import { generateId, isValidEmail, sanitizeInput } from '@/lib/validation';
+import { generatePassword, ensureUniqueUsername } from '@/lib/credentials';
 import type { RelationshipType, Role } from '@/types';
 
 const CREATEABLE_ROLES: Role[] = ['student', 'parent', 'instructor', 'administrator'];
@@ -14,6 +15,7 @@ function mapCreatedUser(user: {
   id: string;
   fullName: string;
   email: string;
+  username: string | null;
   roles: string[];
   activeRole: string;
   createdAt: Date;
@@ -23,6 +25,7 @@ function mapCreatedUser(user: {
     id: user.id,
     fullName: user.fullName,
     email: user.email,
+    username: user.username ?? undefined,
     roles: user.roles as Role[],
     activeRole: user.activeRole as Role,
     emailVerifiedAt: user.emailVerifiedAt ? user.emailVerifiedAt.toISOString() : null,
@@ -58,18 +61,31 @@ export async function POST(request: NextRequest) {
     return badRequest('Password must be at least 8 characters');
   }
 
+  const role = body.role;
+
+  // Only a super admin can create administrator accounts. Administrators can
+  // create instructors, students, and parents.
+  const isSuperAdmin = me.roles.includes('super_admin');
+  if (role === 'administrator' && !isSuperAdmin) {
+    return forbid('Only a super admin can create administrator accounts');
+  }
+
   const email = body.email.trim().toLowerCase();
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) return badRequest('An account with this email already exists.');
 
-  const role = body.role;
-  const password = body.password?.trim() ? body.password : 'ChangeMe123!';
+  const fullName = sanitizeInput(body.fullName).slice(0, 120);
+  const username = await ensureUniqueUsername(fullName, async (candidate) =>
+    Boolean(await prisma.user.findUnique({ where: { username: candidate } })),
+  );
+  const password = body.password?.trim() ? body.password : generatePassword();
   const passwordHash = hashSync(password, 12);
 
   const user = await prisma.user.create({
     data: {
-      fullName: sanitizeInput(body.fullName).slice(0, 120),
+      fullName,
       email,
+      username,
       passwordHash,
       roles: [role as 'student' | 'parent' | 'instructor' | 'administrator'],
       activeRole: role as 'student' | 'parent' | 'instructor' | 'administrator',
@@ -83,8 +99,9 @@ export async function POST(request: NextRequest) {
 
   // Link a parent/guardian to a newly created student. If the parent email does
   // not yet exist, create the parent account on the spot.
+  let parentCredentials: { username?: string; password?: string } | undefined;
   if (role === 'student' && body.parentEmail && isValidEmail(body.parentEmail)) {
-    await linkParent({
+    parentCredentials = await linkParent({
       parentEmail: body.parentEmail.trim().toLowerCase(),
       parentFullName: body.parentFullName?.trim(),
       relationshipType: body.relationshipType,
@@ -120,6 +137,8 @@ export async function POST(request: NextRequest) {
   return created({
     ...mapCreatedUser(user),
     tempPassword: body.password?.trim() ? undefined : password,
+    parentUsername: parentCredentials?.username,
+    parentPassword: parentCredentials?.password,
   });
 }
 
@@ -128,7 +147,7 @@ async function linkParent(params: {
   parentFullName?: string;
   relationshipType?: RelationshipType;
   studentId: string;
-}): Promise<void> {
+}): Promise<{ username?: string; password?: string } | undefined> {
   const relationshipType = params.relationshipType && RELATIONSHIP_TYPES.includes(params.relationshipType)
     ? params.relationshipType
     : 'guardian';
@@ -137,19 +156,30 @@ async function linkParent(params: {
 
   const existingParent = await prisma.user.findUnique({ where: { email: params.parentEmail } });
 
-  let parentId = existingParent?.id;
-  if (!parentId) {
+  let parentId: string;
+  let credentials: { username?: string; password?: string } | undefined;
+  if (existingParent) {
+    parentId = existingParent.id;
+    credentials = { username: existingParent.username ?? undefined };
+  } else {
+    const fullName = parentName ?? sanitizeInput(params.parentEmail).slice(0, 120);
+    const username = await ensureUniqueUsername(fullName, async (candidate) =>
+      Boolean(await prisma.user.findUnique({ where: { username: candidate } })),
+    );
+    const password = generatePassword();
     const createdParent = await prisma.user.create({
       data: {
-        fullName: parentName ?? sanitizeInput(params.parentEmail).slice(0, 120),
+        fullName,
         email: params.parentEmail,
-        passwordHash: hashSync('ChangeMe123!', 12),
+        username,
+        passwordHash: hashSync(password, 12),
         roles: ['parent'],
         activeRole: 'parent',
         emailVerifiedAt: new Date(),
       },
     });
     parentId = createdParent.id;
+    credentials = { username, password };
   }
 
   const existingLink = await prisma.parentStudentLink.findUnique({
@@ -165,4 +195,6 @@ async function linkParent(params: {
       },
     });
   }
+
+  return credentials;
 }

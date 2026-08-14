@@ -33,6 +33,7 @@ interface SessionContextValue {
   user: Session['user'];
   can: (permission: Permission) => boolean;
   roleHome: (role?: Session['user']['activeRole']) => string;
+  refreshUser: () => Promise<void>;
 }
 
 interface LocaleContextValue {
@@ -59,9 +60,9 @@ const LOCALE_STORAGE_KEY = 'emit-locale';
 
 function applyTheme(theme: Theme) {
   const root = document.documentElement;
-  root.classList.toggle('dark', theme === 'dark');
-  root.style.colorScheme = theme;
-  window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  root.classList.remove('dark');
+  root.style.colorScheme = 'light';
+  window.localStorage.setItem(THEME_STORAGE_KEY, 'light');
 }
 
 export function AppProviders({
@@ -74,20 +75,20 @@ export function AppProviders({
 }) {
   const [theme, setThemeState] = useState<Theme>('light');
   const [mounted, setMounted] = useState(false);
+  const [currentUser, setCurrentUser] = useState<Session['user']>(user);
 
   useEffect(() => {
-    const isDark = document.documentElement.classList.contains('dark');
-    setThemeState(isDark ? 'dark' : 'light');
+    setThemeState('light');
     setMounted(true);
   }, []);
 
   useEffect(() => {
     if (!mounted) return;
-    applyTheme(theme);
-  }, [theme, mounted]);
+    applyTheme('light');
+  }, [mounted]);
 
-  const setTheme = useCallback((next: Theme) => setThemeState(next), []);
-  const toggleTheme = useCallback(() => setThemeState((prev) => (prev === 'dark' ? 'light' : 'dark')), []);
+  const setTheme = useCallback(() => setThemeState('light'), []);
+  const toggleTheme = useCallback(() => setThemeState('light'), []);
 
   const initialLocale = useMemo(
     () => ({
@@ -135,11 +136,19 @@ export function AppProviders({
 
   const sessionValue = useMemo<SessionContextValue>(
     () => ({
-      user,
-      can: (permission) => can(user, permission),
-      roleHome: (role) => getRoleHome(role ?? user.activeRole),
+      user: currentUser,
+      can: (permission) => can(currentUser, permission),
+      roleHome: (role) => getRoleHome(role ?? currentUser.activeRole),
+      refreshUser: async () => {
+        const res = await fetch('/api/auth/session', { cache: 'no-store' });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (json.success && json.data?.user) {
+          setCurrentUser(json.data.user);
+        }
+      },
     }),
-    [user],
+    [currentUser],
   );
 
   const localeValue = useMemo<LocaleContextValue>(

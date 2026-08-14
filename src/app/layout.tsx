@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter, Poppins } from 'next/font/google';
 import './globals.css';
+import { PwaRegister } from '@/components/pwa/PwaRegister';
+import { ToastProvider } from '@/components/ui/toast';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -25,31 +27,27 @@ export const metadata: Metadata = {
   icons: {
     icon: '/brand/emit-logo.png',
   },
+  manifest: '/manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    title: 'EMIT LMS',
+    statusBarStyle: 'default',
+  },
 };
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#F9F9FB' },
-    { media: '(prefers-color-scheme: dark)', color: '#121212' },
-  ],
+  themeColor: '#F9F9FB',
 };
 
 const THEME_SCRIPT = `
 (function() {
   try {
-    var stored = localStorage.getItem('emit-theme');
-    if (stored === 'dark' || stored === 'light') {
-      document.documentElement.classList.toggle('dark', stored === 'dark');
-      document.documentElement.style.colorScheme = stored;
-      return;
-    }
+    localStorage.removeItem('emit-theme');
   } catch(e) {}
-  if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-    document.documentElement.classList.add('dark');
-    document.documentElement.style.colorScheme = 'dark';
-  }
+  document.documentElement.classList.remove('dark');
+  document.documentElement.style.colorScheme = 'light';
 })();
 `;
 
@@ -60,7 +58,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
       <body className={`${inter.variable} ${poppins.variable} antialiased`}>
-        {children}
+        <PwaRegister />
+        <ToastProvider>{children}</ToastProvider>
       </body>
     </html>
   );

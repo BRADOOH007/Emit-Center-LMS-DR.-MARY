@@ -104,11 +104,13 @@ export function DataTable<T extends { id: string }>({
   columns,
   emptyMessage = 'No records to display.',
   className,
+  onRowClick,
 }: {
   rows: T[];
   columns: DataColumn<T>[];
   emptyMessage?: string;
   className?: string;
+  onRowClick?: (row: T) => void;
 }) {
   return (
     <div className={cn('overflow-x-auto', className)}>
@@ -127,7 +129,14 @@ export function DataTable<T extends { id: string }>({
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={row.id} className="border-b border-line transition-colors last:border-0 hover:bg-line-soft/60">
+            <tr
+              key={row.id}
+              className={cn(
+                'border-b border-line transition-colors last:border-0 hover:bg-line-soft/60',
+                onRowClick && 'cursor-pointer',
+              )}
+              onClick={onRowClick ? () => onRowClick(row) : undefined}
+            >
               {columns.map((column) => (
                 <td key={column.key} className={cn('px-3 py-2.5 align-middle', column.className)}>
                   {column.render(row)}

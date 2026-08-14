@@ -39,7 +39,26 @@ export async function POST(request: NextRequest) {
     if (me.roles.includes('instructor') || isAdminRole(me.roles)) {
       recordAIUsage(me.id, 1500).catch(() => {});
     }
-    return ok({ exam });
+
+    const saved = await prisma.aIGeneratedContent.create({
+      data: {
+        userId: me.id,
+        courseId: courseId ?? null,
+        type: 'exam',
+        title: exam.title,
+        content: exam as unknown as object,
+        metadata: {
+          subject: genParams.subject,
+          topic: genParams.topic,
+          grade: genParams.grade ?? null,
+          difficulty: genParams.difficulty ?? 'medium',
+          totalPoints: exam.totalPoints,
+          questionCount: exam.questions.length,
+        },
+      },
+    });
+
+    return ok({ exam, generationId: saved.id });
   } catch (err: any) {
     return serverError(err?.message || 'Failed to generate exam');
   }

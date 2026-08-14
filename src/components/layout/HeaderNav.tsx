@@ -43,16 +43,18 @@ export function HeaderNav({ onOpenDrawer, onSignOut }: { onOpenDrawer: () => voi
         </Link>
 
         <div className="ml-auto flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => openAITutor()}
-            aria-label="Open Emit Tutor Bot"
-            title="Emit Tutor Bot"
-            className="btn btn-gold btn-md !px-3"
-          >
-            <Sparkles aria-hidden="true" className="h-4 w-4" />
-            <span className="hidden md:inline">Emit Tutor</span>
-          </button>
+          {user.activeRole !== 'super_admin' && (
+            <button
+              type="button"
+              onClick={() => openAITutor()}
+              aria-label="Open Emit Tutor Bot"
+              title="Emit Tutor Bot"
+              className="btn btn-gold btn-md !px-3"
+            >
+              <Sparkles aria-hidden="true" className="h-4 w-4" />
+              <span className="hidden md:inline">Emit Tutor</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={toggleTheme}

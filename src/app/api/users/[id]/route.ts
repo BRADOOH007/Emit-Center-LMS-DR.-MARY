@@ -9,6 +9,7 @@ function mapUser(row: {
   id: string;
   fullName: string;
   email: string;
+  username: string | null;
   avatarUrl: string | null;
   phone: string | null;
   countryCode: string;
@@ -24,6 +25,7 @@ function mapUser(row: {
     fullName: row.fullName,
     name: row.fullName,
     email: row.email,
+    username: row.username ?? undefined,
     avatarUrl: row.avatarUrl ?? undefined,
     phone: row.phone ?? undefined,
     countryCode: row.countryCode,

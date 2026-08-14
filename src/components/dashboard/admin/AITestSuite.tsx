@@ -15,7 +15,7 @@ import {
   Clock,
 } from 'lucide-react';
 
-type TestType = 'chat' | 'lesson_plan' | 'scheme' | 'presentation' | 'quiz';
+type TestType = 'chat' | 'lesson_plan' | 'unit_plan' | 'presentation' | 'quiz';
 
 interface TestResult {
   testType: TestType;
@@ -31,7 +31,7 @@ interface TestResult {
 const TESTS: { id: TestType; label: string; icon: string; desc: string }[] = [
   { id: 'chat', label: 'Emit Tutor Bot Chat', icon: '💬', desc: 'Basic chat with the AI tutor' },
   { id: 'lesson_plan', label: 'Lesson Plan', icon: '📖', desc: 'Generate a Common Core lesson plan' },
-  { id: 'scheme', label: 'Scheme of Work', icon: '📋', desc: 'Generate a 4-week scheme of work' },
+  { id: 'unit_plan', label: 'Unit Plan', icon: '📋', desc: 'Generate a 4-week unit plan' },
   { id: 'presentation', label: 'Presentation Content', icon: '🎨', desc: 'Generate presentation slide content' },
   { id: 'quiz', label: 'Quiz Generation', icon: '📝', desc: 'Generate a 5-question multiple choice quiz' },
 ];

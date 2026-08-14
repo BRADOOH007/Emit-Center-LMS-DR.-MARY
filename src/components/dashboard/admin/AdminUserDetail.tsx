@@ -6,7 +6,6 @@ import {
   ArrowLeft,
   BookOpen,
   Calendar,
-  Check,
   Clock,
   Copy,
   Eye,
@@ -18,6 +17,7 @@ import {
   Mail,
   Phone,
   RefreshCw,
+  AtSign,
   ShieldCheck,
   UserCheck,
   Users,
@@ -28,6 +28,7 @@ import { Badge } from '@/components/ui/Badge';
 import { UserAvatar } from '@/components/ui/UserAvatar';
 import { PageIntro, SectionPanel, StatCard } from '@/components/dashboard/primitives';
 import { useLocale } from '@/components/providers/AppProviders';
+import { useToast } from '@/components/ui/toast';
 import type { Role } from '@/types';
 import { cn } from '@/lib/utils';
 
@@ -66,6 +67,7 @@ interface UserDetailData {
   id: string;
   fullName: string;
   email: string;
+  username?: string | null;
   avatarUrl?: string | null;
   phone?: string | null;
   countryCode: string;
@@ -105,14 +107,13 @@ function statusLabel(status: string): string {
 
 export function AdminUserDetail({ userId }: { userId: string }) {
   const { formatDateTime } = useLocale();
+  const toast = useToast();
   const [user, setUser] = useState<UserDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showPwd, setShowPwd] = useState(false);
   const [revealedPwd, setRevealedPwd] = useState<string | null>(null);
   const [pwdLoading, setPwdLoading] = useState(false);
-  const [pwdError, setPwdError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -130,19 +131,19 @@ export function AdminUserDetail({ userId }: { userId: string }) {
   const handleRegenerate = async () => {
     if (!confirm('Reset the password for this user? Their current password will be replaced and all active sessions revoked.')) return;
     setPwdLoading(true);
-    setPwdError(null);
     try {
       const res = await fetch(`/api/admin/users/${userId}/password`, { method: 'POST' });
       const json = await res.json();
       if (!res.ok || !json.success) {
-        setPwdError(json.error || 'Failed to reset password');
+        toast.error('Failed to reset password', json.error);
         return;
       }
       setRevealedPwd(json.data.password);
       setShowPwd(true);
       setUser((prev) => (prev ? { ...prev, emailVerifiedAt: new Date().toISOString() } : prev));
+      toast.success('Password reset', `New temporary password: ${json.data.password}`);
     } catch {
-      setPwdError('Failed to reset password');
+      toast.error('Failed to reset password');
     } finally {
       setPwdLoading(false);
     }
@@ -150,9 +151,8 @@ export function AdminUserDetail({ userId }: { userId: string }) {
 
   const copyCredentials = () => {
     if (!user || !revealedPwd) return;
-    navigator.clipboard.writeText(`Email: ${user.email}\nPassword: ${revealedPwd}`).catch(() => {});
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 2000);
+    navigator.clipboard.writeText(`Username: ${user.username ?? user.email}\nEmail: ${user.email}\nPassword: ${revealedPwd}`).catch(() => {});
+    toast.success('Copied to clipboard', 'Credentials are ready to share.');
   };
 
   if (loading) {
@@ -193,6 +193,7 @@ export function AdminUserDetail({ userId }: { userId: string }) {
               <h1 className="font-display text-xl font-bold text-text-primary">{user.fullName}</h1>
               <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-text-muted">
                 <span className="flex items-center gap-1"><Mail className="h-3.5 w-3.5" />{user.email}</span>
+                {user.username && <span className="flex items-center gap-1"><AtSign className="h-3.5 w-3.5" />{user.username}</span>}
                 {user.phone && <span className="flex items-center gap-1"><Phone className="h-3.5 w-3.5" />{user.phone}</span>}
               </div>
             </div>
@@ -251,18 +252,12 @@ export function AdminUserDetail({ userId }: { userId: string }) {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" onClick={copyCredentials}>
-                    {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />} {copied ? 'Copied!' : 'Copy Credentials'}
+                    <Copy className="h-4 w-4" /> Copy Credentials
                   </Button>
                 </div>
               </div>
             )}
           </div>
-
-          {pwdError && (
-            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300">
-              {pwdError}
-            </div>
-          )}
 
           <Button onClick={handleRegenerate} disabled={pwdLoading}>
             {pwdLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Reset Password

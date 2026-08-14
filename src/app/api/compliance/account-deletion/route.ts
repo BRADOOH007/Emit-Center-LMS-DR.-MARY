@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { ok, badRequest, forbid, parseBody } from '@/lib/api-helpers';
 import { getSessionUser } from '@/lib/auth';
 import { isAdminRole, isRateLimited, writeAuditLog } from '@/lib/security';
+import { isProtectedAccount } from '@/lib/protected-accounts';
 
 export async function GET(request: NextRequest) {
   const me = await getSessionUser();
@@ -26,6 +27,7 @@ export async function POST(request: NextRequest) {
 
   const me = await getSessionUser();
   if (!me) return forbid('Sign in required');
+  if (isProtectedAccount(me.email)) return forbid('This account is protected and cannot be deleted.');
 
   const body = await parseBody<{ reason?: string }>(request).catch(() => null);
 
@@ -65,6 +67,7 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const me = await getSessionUser();
   if (!me) return forbid('Sign in required');
+  if (isProtectedAccount(me.email)) return forbid('This account is protected and cannot be deleted.');
 
   const deletionRequest = await prisma.accountDeletionRequest.findFirst({
     where: { userId: me.id, status: 'grace_period' },

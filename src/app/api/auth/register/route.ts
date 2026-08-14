@@ -6,6 +6,7 @@ import { ok, badRequest, parseBody } from '@/lib/api-helpers';
 import { isValidEmail, sanitizeInput } from '@/lib/validation';
 import { isRateLimited } from '@/lib/security';
 import { generateToken } from '@/lib/auth';
+import { ensureUniqueUsername } from '@/lib/credentials';
 import type { SupportedCurrency, SupportedLocale, SupportedTimeZone } from '@/types';
 
 function sha256(value: string): string {
@@ -53,10 +54,16 @@ export async function POST(request: Request) {
 
     const passwordHash = hashSync(body.password, 12);
 
+    const fullName = sanitizeInput(body.fullName).slice(0, 120);
+    const username = await ensureUniqueUsername(fullName, async (candidate) =>
+      Boolean(await prisma.user.findUnique({ where: { username: candidate } })),
+    );
+
     const user = await prisma.user.create({
       data: {
-        fullName: sanitizeInput(body.fullName).slice(0, 120),
+        fullName,
         email,
+        username,
         passwordHash,
         roles: [finalRole as 'student' | 'parent'],
         activeRole: finalRole as 'student' | 'parent',
@@ -87,6 +94,7 @@ export async function POST(request: Request) {
         id: user.id,
         fullName: user.fullName,
         email: user.email,
+        username: user.username ?? undefined,
         activeRole: user.activeRole,
         emailVerified: false,
         ...(devVerifyUrl ? { verifyUrl: devVerifyUrl } : {}),

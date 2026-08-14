@@ -192,7 +192,7 @@ export function buildCurriculumLessonContext(opts: {
     .join('\n');
 }
 
-export function buildCurriculumSchemeContext(opts: {
+export function buildCurriculumUnitPlanContext(opts: {
   curriculum?: string | null;
   country?: string | null;
   grade?: string;
@@ -202,7 +202,7 @@ export function buildCurriculumSchemeContext(opts: {
   return [
     `CURRICULUM: ${p.name} (${p.country}). You are ${p.identity}`,
     `CONTEXT: ${p.contextNote}`,
-    `TERMINOLOGY: In this curriculum, "strand" means ${p.strandLabel} and "subStrand" means ${p.subStrandLabel}. Fill the scheme columns using the correct terminology for ${p.name}.`,
+    `TERMINOLOGY: In this curriculum, "strand" means ${p.strandLabel} and "subStrand" means ${p.subStrandLabel}. Fill the unit plan columns using the correct terminology for ${p.name}.`,
     `OBJECTIVES: Use the stem "${p.objectiveStem}" for learning outcomes.`,
     `VALUES: ${p.valuesGuidance}`,
     `COMPETENCIES: ${p.competenciesGuidance}`,

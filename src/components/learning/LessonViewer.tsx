@@ -15,11 +15,14 @@ import {
   PanelLeft,
   CheckCircle2,
   Circle,
+  Download,
+  WifiOff,
 } from 'lucide-react';
 import type { LessonContent, LessonSection } from '@/types';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/utils';
+import { saveLessonOffline, getOfflineLessons, queueCompletion, flushCompletionQueue, isOnline } from '@/lib/offline';
 
 const CONTENT_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   video: MonitorPlay,
@@ -38,6 +41,34 @@ export function LessonViewer({ courseId }: { courseId: string }) {
   const [sections, setSections] = useState<LessonSection[]>([]);
   const [allContents, setAllContents] = useState<LessonContent[]>([]);
   const [courseTitle, setCourseTitle] = useState('');
+  const [savedOfflineIds, setSavedOfflineIds] = useState<Set<string>>(new Set());
+  const [offline, setOffline] = useState(!isOnline());
+
+  useEffect(() => {
+    getOfflineLessons()
+      .then((lessons) => setSavedOfflineIds(new Set(lessons.map((l) => l.id))))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const goOnline = () => {
+      setOffline(false);
+      flushCompletionQueue(async (item) => {
+        await fetch('/api/participation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'lesson_view', courseId: item.courseId }),
+        });
+      });
+    };
+    const goOffline = () => setOffline(true);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -131,8 +162,30 @@ export function LessonViewer({ courseId }: { courseId: string }) {
         next.add(contentId);
         return next;
       });
+      const record = () =>
+        fetch('/api/participation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'lesson_view', courseId }),
+        }).catch(() => {});
+      if (isOnline()) record();
+      else queueCompletion({ id: contentId, courseId }).catch(() => {});
     },
-    [],
+    [courseId],
+  );
+
+  const handleSaveOffline = useCallback(
+    async (content: LessonContent) => {
+      await saveLessonOffline({
+        id: content.id,
+        courseId,
+        title: content.title,
+        type: content.type,
+        savedAt: new Date().toISOString(),
+      });
+      setSavedOfflineIds((prev) => new Set(prev).add(content.id));
+    },
+    [courseId],
   );
 
   return (
@@ -218,6 +271,27 @@ export function LessonViewer({ courseId }: { courseId: string }) {
           <span className="text-xs text-text-muted">
             {activeContent?.type.replace(/^\w/, (c) => c.toUpperCase())}
           </span>
+          <div className="flex items-center gap-2">
+            {offline && (
+              <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
+                <WifiOff aria-hidden="true" className="h-3.5 w-3.5" /> Offline
+              </span>
+            )}
+            {activeContent && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleSaveOffline(activeContent)}
+                disabled={savedOfflineIds.has(activeContent.id)}
+              >
+                {savedOfflineIds.has(activeContent.id) ? (
+                  <><CheckCircle2 aria-hidden="true" className="h-3.5 w-3.5" /> Saved</>
+                ) : (
+                  <><Download aria-hidden="true" className="h-3.5 w-3.5" /> Save offline</>
+                )}
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="scrollbar-thin flex-1 overflow-y-auto p-6">

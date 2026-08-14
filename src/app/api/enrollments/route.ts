@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { ok, badRequest, forbid, parseBody } from '@/lib/api-helpers';
 import { getSessionUser } from '@/lib/auth';
 import { isAdminRole, isRateLimited } from '@/lib/security';
+import { awardBadge } from '@/lib/badges';
 
 async function isLinkedParent(parentId: string, studentId: string): Promise<boolean> {
   const link = await prisma.parentStudentLink.findUnique({
@@ -75,9 +76,28 @@ export async function POST(request: NextRequest) {
   const body = await parseBody<{ courseId?: string }>(request).catch(() => null);
   if (!body?.courseId) return badRequest('courseId is required');
 
-  const course = await prisma.course.findUnique({ where: { id: body.courseId } });
+  const course = await prisma.course.findUnique({
+    where: { id: body.courseId },
+    include: {
+      prerequisites: { include: { prerequisite: { select: { id: true, title: true } } } },
+    },
+  });
   if (!course) return badRequest('Course not found');
   if (!course.isPublished) return badRequest('This course is not open for enrollment');
+
+  const unmet = [];
+  for (const pre of course.prerequisites) {
+    if (!pre.required) continue;
+    const prior = await prisma.enrollment.findUnique({
+      where: { userId_courseId: { userId: me.id, courseId: pre.prerequisiteId } },
+    });
+    if (!prior || prior.status !== 'completed') {
+      unmet.push(pre.prerequisite.title);
+    }
+  }
+  if (unmet.length) {
+    return badRequest(`Complete prerequisite course${unmet.length > 1 ? 's' : ''} first: ${unmet.join(', ')}`);
+  }
 
   const activeCount = await prisma.enrollment.count({
     where: { courseId: course.id, status: { in: ['active', 'pending'] } },
@@ -97,6 +117,12 @@ export async function POST(request: NextRequest) {
     where: { id: course.id },
     data: { enrolledCount: { increment: 1 } },
   });
+
+  // First enrollment badge.
+  const enrollmentCount = await prisma.enrollment.count({ where: { userId: me.id } });
+  if (enrollmentCount === 1) {
+    awardBadge(me.id, 'First Steps').catch(() => {});
+  }
 
   return ok(enrollment);
 }

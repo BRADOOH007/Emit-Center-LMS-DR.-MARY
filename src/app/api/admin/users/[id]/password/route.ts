@@ -1,19 +1,9 @@
 import { NextRequest } from 'next/server';
-import { randomBytes } from 'crypto';
 import { prisma } from '@/lib/prisma';
 import { ok, notFound, forbid, serverError } from '@/lib/api-helpers';
 import { getSessionUser, revokeAllUserSessions, setUserPassword } from '@/lib/auth';
 import { isAdminRole, writeAuditLog } from '@/lib/security';
-
-function generateSecurePassword(length = 12): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%&*';
-  let password = '';
-  const bytes = randomBytes(length);
-  for (let i = 0; i < length; i++) {
-    password += chars[bytes[i] % chars.length];
-  }
-  return password;
-}
+import { generatePassword } from '@/lib/credentials';
 
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   const me = await getSessionUser();
@@ -23,7 +13,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   const user = await prisma.user.findUnique({ where: { id: params.id } });
   if (!user) return notFound('User not found');
 
-  const newPassword = generateSecurePassword();
+  const newPassword = generatePassword();
   try {
     await setUserPassword(user.id, newPassword);
     await revokeAllUserSessions(user.id);

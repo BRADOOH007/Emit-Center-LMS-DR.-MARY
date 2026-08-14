@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { ArrowRight, Eye, EyeOff, Loader2, MailCheck, UserPlus } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/Button';
+import { useToast } from '@/components/ui/toast';
 
 const ROLES = [
   { value: 'student', label: 'Student' },
@@ -20,13 +21,13 @@ const TIMEZONES = [
 ];
 
 export default function RegisterPage() {
+  const toast = useToast();
   const [showPassword, setShowPassword] = useState(false);
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState('student');
   const [timeZone, setTimeZone] = useState('America/New_York');
-  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [verifyUrl, setVerifyUrl] = useState('');
@@ -35,7 +36,6 @@ export default function RegisterPage() {
     event.preventDefault();
     if (!fullName.trim() || !email.trim() || !password) return;
     setLoading(true);
-    setError('');
     try {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
@@ -54,11 +54,12 @@ export default function RegisterPage() {
       if (json.success) {
         setSuccess(true);
         if (json.data?.verifyUrl) setVerifyUrl(json.data.verifyUrl);
+        toast.success('Account created', 'Verify your email to access your dashboard.');
       } else {
-        setError(json.error ?? 'Registration failed. Please try again.');
+        toast.error('Registration failed', json.error ?? 'Please try again.');
       }
     } catch {
-      setError('Network error. Please try again.');
+      toast.error('Network error', 'Please try again.');
     } finally {
       setLoading(false);
     }
@@ -198,12 +199,6 @@ export default function RegisterPage() {
               </select>
             </div>
           </div>
-
-          {error && (
-            <div className="rounded-lg bg-red-500/10 px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400">
-              {error}
-            </div>
-          )}
 
           {!success && (
             <Button type="submit" variant="gold" size="lg" fullWidth disabled={loading}>

@@ -22,6 +22,11 @@ export async function GET(request: NextRequest) {
       pricing: true,
       instructor: { select: { id: true, fullName: true, email: true } },
       enrollments: { select: { status: true } },
+      prerequisites: {
+        include: { prerequisite: { select: { id: true, title: true, subject: true } } },
+        orderBy: { createdAt: 'asc' },
+      },
+      standards: { orderBy: { authority: 'asc' } },
     },
   });
 
@@ -41,6 +46,20 @@ export async function GET(request: NextRequest) {
     instructorId: c.instructorId,
     instructor: c.instructor,
     pricing: c.pricing.map((p) => ({ id: p.id, currency: p.currency, amount: p.amount })),
+    prerequisites: c.prerequisites.map((p) => ({
+      id: p.id,
+      courseId: p.courseId,
+      prerequisiteId: p.prerequisiteId,
+      required: p.required,
+      prerequisite: p.prerequisite,
+    })),
+    standards: c.standards.map((s) => ({
+      id: s.id,
+      courseId: s.courseId,
+      authority: s.authority,
+      code: s.code,
+      description: s.description,
+    })),
     isPublished: c.isPublished,
     createdAt: c.createdAt.toISOString(),
   }));
@@ -65,6 +84,8 @@ export async function POST(request: NextRequest) {
     maxSeats?: number;
     instructorId?: string;
     pricing?: { currency: SupportedCurrency; amount: number }[];
+    prerequisiteIds?: string[];
+    standards?: { authority: string; code: string; description?: string }[];
     isPublished?: boolean;
   }>(request).catch(() => null);
 
@@ -79,6 +100,8 @@ export async function POST(request: NextRequest) {
   if (!instructor || !(instructor.roles.includes('instructor') || isAdminRole(instructor.roles))) {
     return badRequest('Selected instructor is not valid');
   }
+
+  const prerequisiteIds = await resolvePrerequisites(prisma, body.prerequisiteIds ?? []);
 
   const baseSlug = slugify(body.title);
   const slug = await uniqueSlug(baseSlug);
@@ -112,8 +135,24 @@ export async function POST(request: NextRequest) {
           amount: Math.max(0, Math.round(p.amount)),
         })),
       },
+      prerequisites: prerequisiteIds.length
+        ? {
+            create: prerequisiteIds.map((id) => ({ prerequisiteId: id, required: true })),
+          }
+        : undefined,
+      standards:
+        body.standards?.length
+          ? {
+              create: normalizeStandards(body.standards),
+            }
+          : undefined,
     },
-    include: { pricing: true, instructor: { select: { id: true, fullName: true, email: true } } },
+    include: {
+      pricing: true,
+      instructor: { select: { id: true, fullName: true, email: true } },
+      prerequisites: { include: { prerequisite: { select: { id: true, title: true, subject: true } } } },
+      standards: true,
+    },
   });
 
   await writeAuditLog({
@@ -124,6 +163,36 @@ export async function POST(request: NextRequest) {
   });
 
   return created(course);
+}
+
+function normalizeStandards(list: { authority: string; code: string; description?: string }[]) {
+  const seen = new Set<string>();
+  const out: { authority: string; code: string; description?: string }[] = [];
+  for (const s of list) {
+    const authority = sanitizeInput((s.authority || '').trim()).slice(0, 80);
+    const code = sanitizeInput((s.code || '').trim()).slice(0, 80);
+    const description = sanitizeInput((s.description || '').trim()).slice(0, 400);
+    if (!authority || !code) continue;
+    const key = `${authority.toLowerCase()}|${code.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ authority, code, description: description || undefined });
+  }
+  return out;
+}
+
+async function resolvePrerequisites(
+  client: typeof prisma,
+  ids: string[],
+): Promise<string[]> {
+  const cleaned = [...new Set(ids.filter((id) => typeof id === 'string' && id.trim()))];
+  if (!cleaned.length) return [];
+  const found = await client.course.findMany({
+    where: { id: { in: cleaned } },
+    select: { id: true },
+  });
+  const foundIds = new Set(found.map((c) => c.id));
+  return cleaned.filter((id) => foundIds.has(id));
 }
 
 async function uniqueSlug(baseSlug: string): Promise<string> {

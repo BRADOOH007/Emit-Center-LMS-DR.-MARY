@@ -21,6 +21,7 @@ function mapPrismaUser(dbUser: {
   id: string;
   fullName: string;
   email: string;
+  username: string | null;
   avatarUrl: string | null;
   phone: string | null;
   countryCode: string;
@@ -37,6 +38,7 @@ function mapPrismaUser(dbUser: {
     fullName: dbUser.fullName,
     name: dbUser.fullName,
     email: dbUser.email,
+    username: dbUser.username ?? undefined,
     avatarUrl: dbUser.avatarUrl ?? undefined,
     phone: dbUser.phone ?? undefined,
     countryCode: dbUser.countryCode,
@@ -82,9 +84,13 @@ export function sessionRoleHome(session: Session): string {
   return getRoleHome(session.user.activeRole);
 }
 
-export async function verifyLogin(email: string, password: string): Promise<User | null> {
+export async function verifyLogin(identifier: string, password: string): Promise<User | null> {
   try {
-    const dbUser = await prisma.user.findUnique({ where: { email } });
+    const normalized = identifier.trim().toLowerCase();
+    let dbUser = await prisma.user.findUnique({ where: { email: normalized } });
+    if (!dbUser) {
+      dbUser = await prisma.user.findUnique({ where: { username: normalized } });
+    }
     if (!dbUser) return null;
 
     const valid = compareSync(password, dbUser.passwordHash);

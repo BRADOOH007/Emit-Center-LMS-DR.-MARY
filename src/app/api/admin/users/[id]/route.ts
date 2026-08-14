@@ -57,6 +57,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     id: user.id,
     fullName: user.fullName,
     email: user.email,
+    username: user.username,
     avatarUrl: user.avatarUrl,
     phone: user.phone,
     countryCode: user.countryCode,

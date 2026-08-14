@@ -7,6 +7,22 @@ import { sanitizeInput } from '@/lib/validation';
 import { appAgeLevelToDb, appFormatToDb, appSubjectToDb } from '@/lib/course-mappers';
 import type { AgeLevel, CourseSubject, DeliveryFormat, SupportedCurrency } from '@/types';
 
+function normalizeStandards(list: { authority: string; code: string; description?: string }[]) {
+  const seen = new Set<string>();
+  const out: { authority: string; code: string; description?: string }[] = [];
+  for (const s of list) {
+    const authority = sanitizeInput((s.authority || '').trim()).slice(0, 80);
+    const code = sanitizeInput((s.code || '').trim()).slice(0, 80);
+    const description = sanitizeInput((s.description || '').trim()).slice(0, 400);
+    if (!authority || !code) continue;
+    const key = `${authority.toLowerCase()}|${code.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ authority, code, description: description || undefined });
+  }
+  return out;
+}
+
 const ALLOWED_FORMATS: DeliveryFormat[] = ['onsite', 'online', 'hybrid'];
 const ALLOWED_AGE_LEVELS: AgeLevel[] = ['elementary', 'middle', 'high', 'adult', 'all'];
 const ALLOWED_SUBJECTS: CourseSubject[] = ['robotics', 'coding', 'design', 'life-skills', 'engineering', 'career'];
@@ -31,6 +47,8 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     maxSeats?: number;
     instructorId?: string;
     pricing?: { currency: SupportedCurrency; amount: number }[];
+    prerequisiteIds?: string[];
+    standards?: { authority: string; code: string; description?: string }[];
     isPublished?: boolean;
   }>(request).catch(() => null);
 
@@ -58,6 +76,29 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
           currency: p.currency,
           amount: Math.max(0, Math.round(p.amount)),
         })),
+      });
+    }
+
+    if (body.prerequisiteIds) {
+      const cleaned = [...new Set(body.prerequisiteIds.filter((id) => typeof id === 'string' && id.trim()))];
+      const found = cleaned.length
+        ? await tx.course.findMany({ where: { id: { in: cleaned } }, select: { id: true } })
+        : [];
+      const foundSet = new Set(found.map((c) => c.id));
+      const finalIds = cleaned.filter((id) => foundSet.has(id) && id !== existing.id);
+
+      await tx.coursePrerequisite.deleteMany({ where: { courseId: existing.id } });
+      if (finalIds.length) {
+        await tx.coursePrerequisite.createMany({
+          data: finalIds.map((id) => ({ courseId: existing.id, prerequisiteId: id, required: true })),
+        });
+      }
+    }
+
+    if (body.standards) {
+      await tx.courseStandard.deleteMany({ where: { courseId: existing.id } });
+      await tx.courseStandard.createMany({
+        data: normalizeStandards(body.standards).map((s) => ({ ...s, courseId: existing.id })),
       });
     }
 
@@ -90,9 +131,14 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     return tx.course.update({
       where: { id: existing.id },
       data,
-      include: { pricing: true, instructor: { select: { id: true, fullName: true, email: true } } },
+      include: {
+        pricing: true,
+        instructor: { select: { id: true, fullName: true, email: true } },
+        prerequisites: { include: { prerequisite: { select: { id: true, title: true, subject: true } } } },
+        standards: true,
+      },
     });
-  });
+  }, { timeout: 30000 });
 
   await writeAuditLog({
     userId: me.id,

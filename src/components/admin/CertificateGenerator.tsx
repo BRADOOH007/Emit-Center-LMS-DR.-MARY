@@ -1,11 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { CheckCircle2, Copy, ExternalLink, ShieldCheck } from 'lucide-react';
 import type { Certificate } from '@/types';
-import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { CertificateArt } from '@/components/certificate/CertificateArt';
+import { CertificateActions } from '@/components/certificate/CertificateActions';
 import { cn } from '@/lib/utils';
 
 interface CourseOption {
@@ -28,7 +27,6 @@ export function CertificateGenerator() {
   const [completionDate, setCompletionDate] = useState(new Date().toISOString().slice(0, 10));
   const [generated, setGenerated] = useState<Certificate | null>(null);
   const [generating, setGenerating] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -89,47 +87,18 @@ export function CertificateGenerator() {
     }
   }, [course, user, completionDate]);
 
-  const handleCopyHash = useCallback(() => {
-    if (!generated) return;
-    navigator.clipboard.writeText(generated.verificationHash);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, [generated]);
-
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
       <div className="space-y-6">
         {generated && (
           <div className="space-y-4">
             <CertificateArt certificate={generated} />
-            <div className="flex flex-wrap items-center gap-3">
-              <Button variant="outline" size="sm" onClick={handleCopyHash}>
-                {copied ? (
-                  <>
-                    <CheckCircle2 aria-hidden="true" className="h-4 w-4 text-emerald-500" />
-                    Copied
-                  </>
-                ) : (
-                  <>
-                    <Copy aria-hidden="true" className="h-4 w-4" />
-                    Copy Hash
-                  </>
-                )}
-              </Button>
-              <a
-                href={`/certificate/${generated.verificationHash}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn btn-outline btn-sm"
-              >
-                <ExternalLink aria-hidden="true" className="h-4 w-4" />
-                View Public Page
-              </a>
-              <Badge variant="success" dot>
-                <ShieldCheck aria-hidden="true" className="h-3 w-3" />
-                Verifiable
-              </Badge>
-            </div>
+            <CertificateActions
+              certificate={generated}
+              showSend
+              showCopy
+              showDownload
+            />
           </div>
         )}
 

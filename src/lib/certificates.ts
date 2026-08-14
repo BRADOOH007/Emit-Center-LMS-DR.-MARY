@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import type { Certificate } from '@/types';
+import { awardBadge } from '@/lib/badges';
 
 const HEX = '0123456789abcdef';
 
@@ -59,6 +60,16 @@ export async function issueCertificate({
       verificationHash: verificationHashFor(userId, courseId),
     },
   });
+
+  // Award completion badges.
+  awardBadge(userId, 'Course Completer', courseId).catch(() => {});
+  const grade = await prisma.gradebookEntry.findUnique({
+    where: { courseId_userId: { courseId, userId } },
+    select: { letterGrade: true },
+  });
+  if (grade?.letterGrade && ['A+', 'A', 'A-'].includes(grade.letterGrade)) {
+    awardBadge(userId, 'High Achiever', courseId).catch(() => {});
+  }
 
   return mapCertificate(certificate);
 }

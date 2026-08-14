@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { BookOpen, Eye, EyeOff, Search } from 'lucide-react';
+import { BookOpen, Check, Eye, EyeOff, GitBranch, Loader2, Plus, Search, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { PageIntro, DataColumn, DataTable, ProgressBarCell, SectionPanel, StatCard } from '@/components/dashboard/primitives';
 import { useLocale } from '@/components/providers/AppProviders';
-import type { AgeLevel, CourseSchedule, CourseSubject, DeliveryFormat, SupportedCurrency } from '@/types';
+import type { AgeLevel, CoursePrerequisite, CourseSchedule, CourseStandard, CourseSubject, DeliveryFormat, SupportedCurrency } from '@/types';
 
 interface AdminCourse {
   id: string;
@@ -24,8 +24,16 @@ interface AdminCourse {
   instructorId: string;
   instructor?: { id: string; fullName: string; email: string } | null;
   pricing: { id: string; courseId: string; currency: SupportedCurrency; amount: number }[];
+  prerequisites?: CoursePrerequisite[];
+  standards?: CourseStandard[];
   isPublished: boolean;
   createdAt: string;
+}
+
+interface StandardDraft {
+  authority: string;
+  code: string;
+  description: string;
 }
 
 export function AdminCourses() {
@@ -36,6 +44,13 @@ export function AdminCourses() {
   const [composerOpen, setComposerOpen] = useState(false);
   const [draft, setDraft] = useState({ title: '', subject: 'coding', ageLevel: 'middle', format: 'online', priceUsd: '149' });
   const [added, setAdded] = useState<AdminCourse[]>([]);
+
+  // --- prerequisites & standards editor ---
+  const [editId, setEditId] = useState<string | null>(null);
+  const [preReqIds, setPreReqIds] = useState<string[]>([]);
+  const [standards, setStandards] = useState<StandardDraft[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -86,6 +101,8 @@ export function AdminCourses() {
       instructorId: 'usr_0002',
       instructor: undefined,
       pricing: [{ id: `prc_${id}`, courseId: id, currency: 'USD', amount: Math.round(Number(draft.priceUsd || 0) * 100) }],
+      prerequisites: [],
+      standards: [],
       isPublished: false,
       createdAt: new Date().toISOString(),
     };
@@ -93,6 +110,58 @@ export function AdminCourses() {
     setPublished((prev) => [newCourse.id, ...prev]);
     setComposerOpen(false);
     setDraft({ title: '', subject: 'coding', ageLevel: 'middle', format: 'online', priceUsd: '149' });
+  };
+
+  const openCourseEditor = (course: AdminCourse) => {
+    setEditId(course.id);
+    setPreReqIds(course.prerequisites?.map((p) => p.prerequisiteId) ?? []);
+    setStandards(
+      (course.standards ?? []).map((s) => ({ authority: s.authority, code: s.code, description: s.description ?? '' })),
+    );
+    setSaveMsg('');
+  };
+
+  const saveCoursePath = async () => {
+    if (!editId) return;
+    setSaving(true);
+    setSaveMsg('');
+    try {
+      const res = await fetch(`/api/admin/courses/${editId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prerequisiteIds: preReqIds,
+          standards: standards.filter((s) => s.authority.trim() && s.code.trim()),
+        }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        setSaveMsg(`Failed to save: ${json.error ?? 'unknown error'}`);
+      } else {
+        setCourses((prev) =>
+          prev.map((c) =>
+            c.id === editId
+              ? {
+                  ...c,
+                  prerequisites: json.data.prerequisites,
+                  standards: (json.data.standards ?? []).map((s: CourseStandard) => ({
+                    id: s.id,
+                    courseId: s.courseId,
+                    authority: s.authority,
+                    code: s.code,
+                    description: s.description,
+                  })),
+                }
+              : c,
+          ),
+        );
+        setSaveMsg('Learning pathway saved.');
+      }
+    } catch {
+      setSaveMsg('Network error while saving.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const columns: DataColumn<AdminCourse>[] = [
@@ -149,14 +218,19 @@ export function AdminCourses() {
       key: 'actions',
       header: 'Actions',
       render: (course) => (
-        <Button
-          variant={published.includes(course.id) ? 'outline' : 'ghost'}
-          size="sm"
-          onClick={() => togglePublished(course.id)}
-        >
-          {published.includes(course.id) ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-          {published.includes(course.id) ? 'Unpublish' : 'Publish'}
-        </Button>
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="outline" size="sm" onClick={() => openCourseEditor(course)}>
+            <GitBranch aria-hidden="true" className="h-3.5 w-3.5" /> Pathway
+          </Button>
+          <Button
+            variant={published.includes(course.id) ? 'outline' : 'ghost'}
+            size="sm"
+            onClick={() => togglePublished(course.id)}
+          >
+            {published.includes(course.id) ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            {published.includes(course.id) ? 'Unpublish' : 'Publish'}
+          </Button>
+        </div>
       ),
     },
   ];
@@ -252,6 +326,21 @@ export function AdminCourses() {
         </SectionPanel>
       )}
 
+      {editId && (
+        <CoursePathEditor
+          editId={editId}
+          courses={allCourses}
+          preReqIds={preReqIds}
+          setPreReqIds={setPreReqIds}
+          standards={standards}
+          setStandards={setStandards}
+          saving={saving}
+          saveMsg={saveMsg}
+          onSave={saveCoursePath}
+          onClose={() => setEditId(null)}
+        />
+      )}
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Total Courses" value={allCourses.length} hint={`${published.length} published`} icon={BookOpen} tone="gold" />
         <StatCard label="Published" value={published.length} hint="Visible in catalog" icon={BookOpen} tone="emerald" />
@@ -277,5 +366,135 @@ export function AdminCourses() {
         <DataTable rows={filtered} columns={columns} emptyMessage="No courses match your search." />
       </SectionPanel>
     </div>
+  );
+}
+
+function CoursePathEditor({
+  editId,
+  courses,
+  preReqIds,
+  setPreReqIds,
+  standards,
+  setStandards,
+  saving,
+  saveMsg,
+  onSave,
+  onClose,
+}: {
+  editId: string;
+  courses: AdminCourse[];
+  preReqIds: string[];
+  setPreReqIds: (ids: string[]) => void;
+  standards: StandardDraft[];
+  setStandards: (list: StandardDraft[]) => void;
+  saving: boolean;
+  saveMsg: string;
+  onSave: () => void;
+  onClose: () => void;
+}) {
+  const current = courses.find((c) => c.id === editId);
+  const candidates = courses.filter((c) => c.id !== editId && !c.id.startsWith('crs_new'));
+
+  const togglePreReq = (id: string) => {
+    setPreReqIds(preReqIds.includes(id) ? preReqIds.filter((x) => x !== id) : [...preReqIds, id]);
+  };
+
+  const updateStandard = (index: number, patch: Partial<StandardDraft>) => {
+    setStandards(standards.map((s, i) => (i === index ? { ...s, ...patch } : s)));
+  };
+
+  return (
+    <SectionPanel
+      title={`Learning path · ${current?.title ?? ''}`}
+      icon={GitBranch}
+      actions={
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={onClose}>Close</Button>
+          <Button variant="gold" size="sm" onClick={onSave} disabled={saving}>
+            {saving ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : <Check aria-hidden="true" className="h-4 w-4" />}
+            Save
+          </Button>
+        </div>
+      }
+    >
+      <p className="mb-1 text-xs text-text-muted">Select prerequisite courses and align academic standards (e.g. TEKS, B.E.S.T., NGSS, Common Core).</p>
+      {saveMsg && (
+        <p className={`mb-3 text-xs ${saveMsg.startsWith('Failed') || saveMsg.startsWith('Network') ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+          {saveMsg}
+        </p>
+      )}
+
+      <div className="mb-4">
+        <p className="label">Prerequisites (must be completed before enrollment)</p>
+        {candidates.length === 0 ? (
+          <p className="text-sm text-text-muted">No other published courses to choose from yet.</p>
+        ) : (
+          <div className="grid gap-2 sm:grid-cols-2">
+            {candidates.map((c) => (
+              <label
+                key={c.id}
+                className={`flex cursor-pointer items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm transition-colors ${
+                  preReqIds.includes(c.id) ? 'border-gold-500 bg-gold-500/10' : 'border-line hover:bg-line-soft'
+                }`}
+              >
+                <span className="min-w-0">
+                  <span className="block truncate font-medium text-text-primary">{c.title}</span>
+                  <span className="text-xs text-text-muted">{c.subject} · {c.ageLevel}</span>
+                </span>
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-gold-500"
+                  checked={preReqIds.includes(c.id)}
+                  onChange={() => togglePreReq(c.id)}
+                />
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="mb-3 flex items-center justify-between">
+        <p className="label !mb-0">Standards alignment</p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setStandards([...standards, { authority: '', code: '', description: '' }])}
+        >
+          <Plus aria-hidden="true" className="h-3.5 w-3.5" /> Add standard
+        </Button>
+      </div>
+
+      {standards.length === 0 ? (
+        <p className="text-sm text-text-muted">No standards aligned yet.</p>
+      ) : (
+        <div className="space-y-2">
+          {standards.map((s, i) => (
+            <div key={i} className="grid gap-2 rounded-lg border border-line p-2 sm:grid-cols-[95px_110px_1fr_auto]">
+              <input
+                className="input !py-1.5"
+                placeholder="Authority"
+                value={s.authority}
+                onChange={(e) => updateStandard(i, { authority: e.target.value })}
+              />
+              <input
+                className="input !py-1.5"
+                placeholder="Code (e.g. 8.2B)"
+                value={s.code}
+                onChange={(e) => updateStandard(i, { code: e.target.value })}
+              />
+              <input
+                className="input !py-1.5"
+                placeholder="Standard description (optional)"
+                value={s.description}
+                onChange={(e) => updateStandard(i, { description: e.target.value })}
+              />
+              <Button variant="ghost" size="sm" onClick={() => setStandards(standards.filter((_, j) => j !== i))}>
+                <Trash2 aria-hidden="true" className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </SectionPanel>
   );
 }

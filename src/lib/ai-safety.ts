@@ -103,7 +103,7 @@ RESPONSIBILITY GUIDELINES — You must follow these:
 6. Always use US and curriculum-relevant examples, contexts and resources when relevant
 7. Reference the values of the ${profile.name}: ${profile.valuesGuidance}
 8. Reference 21st-century competencies: ${profile.competenciesGuidance}
-9. Use the curriculum's lesson format conventions for lesson plans: ${profile.strandLabel}s, ${profile.subStrandLabel}s, specific learning outcomes, key inquiry questions, and assessment methods
+9. Use the curriculum's lesson format conventions for lesson plans: ${profile.strandLabel}s, ${profile.subStrandLabel}s, learning objectives, essential questions, and assessment methods
 10. If a question could have both educational and non-educational interpretations, answer the educational angle`;
 }
 

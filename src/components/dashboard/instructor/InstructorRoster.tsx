@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Search, UserRound } from 'lucide-react';
+import { Loader2, Megaphone, Search, Send, UserRound, X } from 'lucide-react';
 import { PageIntro, DataColumn, DataTable, ProgressBarCell, SectionPanel, StatCard } from '@/components/dashboard/primitives';
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 import { UserAvatar } from '@/components/ui/UserAvatar';
 import type { Course, GradebookEntry } from '@/types';
 
@@ -14,6 +15,7 @@ export function InstructorRoster({ instructorId }: { instructorId: string }) {
   const [courseFilter, setCourseFilter] = useState<string>('all');
   const [courses, setCourses] = useState<Course[]>([]);
   const [roster, setRoster] = useState<RosterRow[]>([]);
+  const [broadcastOpen, setBroadcastOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -108,6 +110,11 @@ export function InstructorRoster({ instructorId }: { instructorId: string }) {
         kicker="Instructor · Roster"
         title="Student Roster"
         subtitle={`${roster.length} students across ${courses.length} courses`}
+        actions={
+          <Button onClick={() => setBroadcastOpen(true)} disabled={courses.length === 0}>
+            <Megaphone aria-hidden="true" className="h-4 w-4" /> Message Class
+          </Button>
+        }
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -142,6 +149,85 @@ export function InstructorRoster({ instructorId }: { instructorId: string }) {
       <SectionPanel>
         <DataTable rows={filtered} columns={columns} emptyMessage="No students match your filters." />
       </SectionPanel>
+
+      {broadcastOpen && (
+        <BroadcastModal
+          courses={courses}
+          onClose={() => setBroadcastOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function BroadcastModal({ courses, onClose }: { courses: Course[]; onClose: () => void }) {
+  const [courseId, setCourseId] = useState(courses[0]?.id ?? '');
+  const [subject, setSubject] = useState('');
+  const [content, setContent] = useState('');
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState('');
+
+  const send = async () => {
+    if (!courseId || !subject.trim() || !content.trim()) return;
+    setSending(true);
+    setResult('');
+    try {
+      const res = await fetch('/api/messages/broadcast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ courseId, subject: subject.trim(), content: content.trim() }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setResult(`Message sent to ${json.data.recipients} student(s).`);
+        setSubject('');
+        setContent('');
+      } else {
+        setResult(json.error ?? 'Failed to send.');
+      }
+    } catch {
+      setResult('Network error while sending.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Message class" className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div aria-hidden="true" onClick={onClose} className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+      <div className="relative z-10 w-full max-w-lg rounded-card border border-line bg-base-elevated p-5 shadow-pop">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-bold text-text-primary">Message the class</h3>
+          <button type="button" onClick={onClose} className="btn btn-ghost btn-sm !px-1.5" aria-label="Close">
+            <X aria-hidden="true" className="h-5 w-5" />
+          </button>
+        </div>
+        <p className="mt-1 text-xs text-text-muted">Sends an in-app message, notification, and email to every enrolled student.</p>
+        <div className="mt-4 space-y-3">
+          <div>
+            <label className="label" htmlFor="bc-course">Course</label>
+            <select id="bc-course" className="input" value={courseId} onChange={(e) => setCourseId(e.target.value)}>
+              {courses.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label" htmlFor="bc-subject">Subject</label>
+            <input id="bc-subject" className="input" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="e.g. Class reminder" />
+          </div>
+          <div>
+            <label className="label" htmlFor="bc-content">Message</label>
+            <textarea id="bc-content" rows={4} className="input" value={content} onChange={(e) => setContent(e.target.value)} placeholder="Write your message…" />
+          </div>
+          {result && <p className="text-sm text-emerald-600 dark:text-emerald-400">{result}</p>}
+          <div className="flex gap-3">
+            <Button variant="outline" onClick={onClose} className="flex-1">Cancel</Button>
+            <Button variant="gold" onClick={send} disabled={sending || !courseId || !subject.trim() || !content.trim()} className="flex-1">
+              {sending ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : <Send aria-hidden="true" className="h-4 w-4" />}
+              Send
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
