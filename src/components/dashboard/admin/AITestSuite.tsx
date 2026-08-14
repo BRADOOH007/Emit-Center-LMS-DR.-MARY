@@ -29,7 +29,7 @@ interface TestResult {
 }
 
 const TESTS: { id: TestType; label: string; icon: string; desc: string }[] = [
-  { id: 'chat', label: 'Emit Tutor Bot Chat', icon: '💬', desc: 'Basic chat with the AI tutor' },
+  { id: 'chat', label: 'AI Chat', icon: '💬', desc: 'Basic chat with the AI assistant' },
   { id: 'lesson_plan', label: 'Lesson Plan', icon: '📖', desc: 'Generate a Common Core lesson plan' },
   { id: 'unit_plan', label: 'Unit Plan', icon: '📋', desc: 'Generate a 4-week unit plan' },
   { id: 'presentation', label: 'Presentation Content', icon: '🎨', desc: 'Generate presentation slide content' },

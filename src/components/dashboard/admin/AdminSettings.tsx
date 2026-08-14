@@ -750,12 +750,27 @@ export function AdminSettings() {
                   <input type="password" className="input font-mono text-xs" placeholder={integrations.zoomClientSecret ? '•••••••• (configured — leave blank to keep)' : 'Zoom Client Secret'} value={integrations.zoomClientSecret} onChange={(e) => setIntegrations((p) => ({ ...p, zoomClientSecret: e.target.value }))} />
                   <input className="input font-mono text-xs" placeholder="Verification token (optional)" value={integrations.zoomVerificationToken} onChange={(e) => setIntegrations((p) => ({ ...p, zoomVerificationToken: e.target.value }))} />
                   <input type="password" className="input font-mono text-xs" placeholder={integrations.zoomWebhookSecret ? '•••••••• (configured — leave blank to keep)' : 'Webhook secret (optional)'} value={integrations.zoomWebhookSecret} onChange={(e) => setIntegrations((p) => ({ ...p, zoomWebhookSecret: e.target.value }))} />
-                  <span className="text-xs text-text-muted sm:col-span-2">
-                    Create a Server-to-Server OAuth app at{' '}
-                    <a href="https://marketplace.zoom.us/develop/apps" target="_blank" rel="noopener noreferrer" className="font-medium text-gold-600 hover:underline dark:text-gold-400">
-                      Zoom Marketplace
-                    </a>
-                  </span>
+                  <div className="sm:col-span-2 space-y-1.5 text-xs text-text-muted">
+                    <p>
+                      Create a <span className="font-medium text-text-primary">Server-to-Server OAuth</span> app at{' '}
+                      <a href="https://marketplace.zoom.us/develop/apps" target="_blank" rel="noopener noreferrer" className="font-medium text-gold-600 hover:underline dark:text-gold-400">
+                        Zoom Marketplace
+                      </a>{' '}
+                      to get the Client ID and Client Secret:
+                    </p>
+                    <ol className="list-decimal space-y-1 pl-4">
+                      <li>Build App → Server-to-Server OAuth → enter an App name (e.g. &ldquo;EMIT Center LMS&rdquo;).</li>
+                      <li>Enable the scopes <span className="font-mono">meeting:write:admin</span>, <span className="font-mono">meeting:read:admin</span>.</li>
+                      <li>Copy the <span className="font-mono">Client ID</span> and <span className="font-mono">Client Secret</span> into the fields above and turn Zoom on.</li>
+                    </ol>
+                    <p>
+                      Optional — meeting status tracking: create a{' '}
+                      <a href="https://marketplace.zoom.us/develop/apps" target="_blank" rel="noopener noreferrer" className="font-medium text-gold-600 hover:underline dark:text-gold-400">
+                        Platform Webhook
+                      </a>
+                      , add the <span className="font-mono">Meeting</span> events, and copy the <span className="font-mono">Verification Token</span> / <span className="font-mono">Webhook Secret</span> for verification.
+                    </p>
+                  </div>
                 </div>
               )}
             </div>

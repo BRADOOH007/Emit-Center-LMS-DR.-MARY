@@ -92,7 +92,7 @@ export function AdminAISettings() {
       <PageIntro
         kicker="Admin · AI"
         title="AI Provider Configuration"
-        subtitle="Configure the AI waterfall (Emit Tutor Bot). Keys are stored server-side and never exposed to the browser."
+        subtitle="Configure the AI waterfall. Keys are stored server-side and never exposed to the browser."
         actions={
           <>
             <Link href="/dashboard/admin/ai/test" className="btn btn-outline btn-md">
@@ -285,7 +285,7 @@ export function AdminAISettings() {
             <span className="flex items-center gap-1.5 font-medium text-gold-700 dark:text-gold-300">
               <ShieldCheck className="h-3.5 w-3.5" /> Status
             </span>
-            {hasKey ? 'At least one AI provider key is configured — Emit Tutor Bot is ready to answer.' : 'No AI provider keys configured yet. Emit Tutor Bot will not be able to generate answers until a key is added.'}
+            {hasKey ? 'At least one AI provider key is configured — AI features are ready to answer.' : 'No AI provider keys configured yet. AI features will not be able to generate answers until a key is added.'}
           </div>
         </div>
       </div>
