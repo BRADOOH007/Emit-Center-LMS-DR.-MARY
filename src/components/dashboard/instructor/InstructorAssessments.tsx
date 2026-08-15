@@ -51,7 +51,9 @@ interface AssignmentRow {
   title: string;
   points: number;
   dueDate: string;
-  submissions?: unknown[];
+  questionCount?: number;
+  pastDue?: boolean;
+  submissions?: { id: string; score?: number | null; status?: string }[];
 }
 
 interface GeneratedAssignment {
@@ -62,6 +64,25 @@ interface GeneratedAssignment {
   rubric: { excellent: string; good: string; satisfactory: string; needsImprovement: string };
   estimatedDays: number;
   content: string;
+}
+
+interface GeneratedQuizQuestion {
+  id: string;
+  question: string;
+  type: 'mcq' | 'short';
+  options?: string[];
+  correctAnswer?: string;
+  modelAnswer?: string;
+  explanation?: string;
+  points: number;
+}
+
+interface GeneratedAssignmentQuiz {
+  title: string;
+  description: string;
+  estimatedDays: number;
+  questions: GeneratedQuizQuestion[];
+  totalPoints: number;
 }
 
 interface GeneratedPresentation {
@@ -121,6 +142,7 @@ export function InstructorAssessments({ instructorId }: { instructorId: string }
   // --- assignments ---
   const [estimatedDays, setEstimatedDays] = useState(7);
   const [assignment, setAssignment] = useState<GeneratedAssignment | null>(null);
+  const [quizAssignment, setQuizAssignment] = useState<GeneratedAssignmentQuiz | null>(null);
   const [assignmentRows, setAssignmentRows] = useState<AssignmentRow[]>([]);
   const [loadingAssignmentRows, setLoadingAssignmentRows] = useState(true);
   const [deleteAssignmentId, setDeleteAssignmentId] = useState<string | null>(null);
@@ -329,11 +351,13 @@ export function InstructorAssessments({ instructorId }: { instructorId: string }
           grade: grade || undefined,
           difficulty,
           estimatedDays,
+          mode: 'quiz',
         }),
       });
       const json = await res.json();
       if (!json.success) return setError(json.error ?? 'Failed to generate assignment.');
-      setAssignment(json.data.assignment);
+      setQuizAssignment(json.data.assignment);
+      setAssignment(null);
     } catch (e: any) {
       setError(e?.message ?? 'Failed to generate assignment.');
     } finally {
@@ -342,26 +366,42 @@ export function InstructorAssessments({ instructorId }: { instructorId: string }
   };
 
   const handleSaveAssignment = async () => {
-    if (!assignment || !courseId) return;
+    if ((!assignment && !quizAssignment) || !courseId) return;
     setSaving(true);
     setError('');
+    setSavedMsg('');
     try {
+      const quiz = quizAssignment;
       const res = await fetch('/api/assignments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          courseId,
-          title: assignment.title,
-          description: `${assignment.description}\n\n${assignment.content}\n\n${assignment.instructions.map((i, n) => `${n + 1}. ${i}`).join('\n')}`,
-          dueDate: new Date(Date.now() + estimatedDays * 24 * 60 * 60 * 1000).toISOString(),
-          points: 100,
-          allowedFormats: ['pdf', 'doc', 'docx', 'zip'],
-        }),
+        body: JSON.stringify(
+          quiz
+            ? {
+                courseId,
+                title: quiz.title,
+                description: quiz.description,
+                dueDate: new Date(Date.now() + quiz.estimatedDays * 24 * 60 * 60 * 1000).toISOString(),
+                points: quiz.totalPoints,
+                questions: quiz.questions,
+              }
+            : assignment
+              ? {
+                  courseId,
+                  title: assignment.title,
+                  description: `${assignment.description}\n\n${assignment.content}\n\n${assignment.instructions.map((i, n) => `${n + 1}. ${i}`).join('\n')}`,
+                  dueDate: new Date(Date.now() + estimatedDays * 24 * 60 * 60 * 1000).toISOString(),
+                  points: 100,
+                  allowedFormats: ['pdf', 'doc', 'docx', 'zip'],
+                }
+              : {},
+        ),
       });
       const json = await res.json();
       if (!json.success) return setError(json.error ?? 'Failed to save assignment.');
       setSavedMsg(`Assignment “${json.data.title}” was published to your course.`);
       setAssignment(null);
+      setQuizAssignment(null);
       loadAssignments();
     } catch (e: any) {
       setError(e?.message ?? 'Failed to save assignment.');
@@ -430,9 +470,33 @@ export function InstructorAssessments({ instructorId }: { instructorId: string }
 
   const assignmentColumns: DataColumn<AssignmentRow>[] = [
     { key: 'title', header: 'Assignment', render: (r) => <span className="font-medium text-text-primary">{r.title}</span> },
+    { key: 'questions', header: 'Questions', render: (r) => (r.questionCount ? `${r.questionCount}` : '—') },
     { key: 'points', header: 'Points', render: (r) => `${r.points} pts` },
-    { key: 'due', header: 'Due', render: (r) => new Date(r.dueDate).toLocaleDateString() },
-    { key: 'submissions', header: 'Submissions', render: (r) => `${r.submissions?.length ?? 0}` },
+    {
+      key: 'due',
+      header: 'Due',
+      render: (r) => (
+        <span className="flex items-center gap-1">
+          {new Date(r.dueDate).toLocaleDateString()}
+          {r.pastDue && <Badge variant="danger" dot>Past due</Badge>}
+        </span>
+      ),
+    },
+    {
+      key: 'submissions',
+      header: 'Submissions',
+      render: (r) => {
+        const graded = (r.submissions ?? []).filter((s) => s.score != null);
+        const total = r.points > 0 ? r.points : 1;
+        const avg = graded.length > 0 ? Math.round((graded.reduce((sum, s) => sum + (s.score ?? 0), 0) / (graded.length * total)) * 1000) / 10 : null;
+        return (
+          <span className="text-sm tabular-nums">
+            {graded.length}/{r.submissions?.length ?? 0}
+            {avg != null && <span className="ml-1 text-xs text-text-muted">avg {avg}%</span>}
+          </span>
+        );
+      },
+    },
     {
       key: 'actions',
       header: '',
@@ -636,6 +700,48 @@ export function InstructorAssessments({ instructorId }: { instructorId: string }
                   <li><span className="font-semibold">Satisfactory:</span> {assignment.rubric.satisfactory}</li>
                   <li><span className="font-semibold">Needs improvement:</span> {assignment.rubric.needsImprovement}</li>
                 </ul>
+              </div>
+            </SectionPanel>
+          )}
+
+          {quizAssignment && (
+            <SectionPanel
+              title={quizAssignment.title}
+              icon={FileText}
+              actions={
+                <Button variant="gold" size="sm" onClick={handleSaveAssignment} disabled={saving}>
+                  {saving ? <><Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />Saving…</> : <><Save aria-hidden="true" className="h-4 w-4" />Publish Assignment</>}
+                </Button>
+              }
+            >
+              <p className="mb-1 text-xs text-gold-600 dark:text-gold-400">
+                {quizAssignment.questions.length} questions · {quizAssignment.totalPoints} pts · due in {quizAssignment.estimatedDays} day(s)
+              </p>
+              <p className="mb-3 text-sm text-text-muted">{quizAssignment.description}</p>
+              <div className="space-y-3">
+                {quizAssignment.questions.map((q, i) => (
+                  <div key={q.id} className="rounded-lg border border-line p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="text-sm font-semibold text-text-primary">{i + 1}. {q.question}</p>
+                      <Badge variant={q.type === 'mcq' ? 'gold' : 'neutral'}>
+                        {q.type === 'mcq' ? 'Multiple Choice' : 'Short Answer'} · {q.points} pts
+                      </Badge>
+                    </div>
+                    {q.type === 'mcq' && q.options && (
+                      <ul className="mt-2 grid gap-1 text-xs text-text-muted sm:grid-cols-2">
+                        {q.options.map((opt, j) => (
+                          <li key={j} className={cn(opt === q.correctAnswer && 'font-semibold text-emerald-700 dark:text-emerald-400')}>
+                            {String.fromCharCode(65 + j)}. {opt}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {q.type === 'short' && q.modelAnswer && (
+                      <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-400">Model answer: {q.modelAnswer}</p>
+                    )}
+                    {q.explanation && <p className="mt-1.5 text-xs text-text-muted">Why: {q.explanation}</p>}
+                  </div>
+                ))}
               </div>
             </SectionPanel>
           )}

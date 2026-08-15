@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { ok, badRequest, forbid, serverError } from '@/lib/api-helpers';
 import { getSessionUser } from '@/lib/auth';
-import { isAdminRole } from '@/lib/security';
+import { isAdminRole, writeAuditLog } from '@/lib/security';
 import { checkAIUsageAllowed, recordAIUsage } from '@/lib/ai-usage';
 import { generateExam, type ExamGenerationParams } from '@/lib/exam-generator';
 
@@ -58,6 +58,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    await writeAuditLog({ userId: me.id, action: 'ai.generated.exam', resourceType: 'ai', resourceId: saved.id });
     return ok({ exam, generationId: saved.id });
   } catch (err: any) {
     return serverError(err?.message || 'Failed to generate exam');

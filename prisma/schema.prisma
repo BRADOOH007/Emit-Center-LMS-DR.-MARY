@@ -110,6 +110,7 @@ model User {
   participationLogs ParticipationLog[]
   badges            UserBadge[]
   files             UploadedFile[]       @relation("UserFiles")
+  lessonProgress    CourseLessonProgress[] @relation("UserLessonProgress")
 }
 
 model Session {
@@ -231,6 +232,8 @@ model Course {
   prerequisites   CoursePrerequisite[]  @relation("CoursePrereqs")
   prerequisiteOf  CoursePrerequisite[]  @relation("PrereqOf")
   standards       CourseStandard[]      @relation("CourseStandards")
+  units           CourseUnit[]          @relation("CourseUnits")
+  courseLessons   CourseLesson[]        @relation("CourseLessonCourse")
 
   @@index([instructorId])
   @@index([format])
@@ -267,6 +270,64 @@ model CourseStandard {
   @@unique([courseId, authority, code])
   @@index([courseId])
   @@index([authority])
+}
+
+model CourseUnit {
+  id          String   @id @default(cuid())
+  courseId    String
+  title       String
+  order       Int      @default(1)
+  description String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  course Course        @relation("CourseUnits", fields: [courseId], references: [id], onDelete: Cascade)
+  lessons CourseLesson[]
+
+  @@index([courseId])
+}
+
+model CourseLesson {
+  id              String   @id @default(cuid())
+  unitId          String
+  courseId        String
+  title           String
+  order           Int      @default(1)
+  summary         String?  @db.Text
+  contentMarkdown String?  @db.Text
+  assessmentJson  Json?
+  status          String   @default("pending") // pending | generating | ready | error
+  curriculum      String   @default("us-generic")
+  grade           String?
+  error           String?
+  generatedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  unit     CourseUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  course   Course     @relation("CourseLessonCourse", fields: [courseId], references: [id], onDelete: Cascade)
+  progress CourseLessonProgress[]
+
+  @@index([unitId])
+  @@index([courseId])
+}
+
+model CourseLessonProgress {
+  id          String   @id @default(cuid())
+  userId      String
+  lessonId    String
+  status      String   @default("started") // started | completed
+  score       Int?
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user   User         @relation("UserLessonProgress", fields: [userId], references: [id], onDelete: Cascade)
+  lesson CourseLesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonId])
+  @@index([userId])
+  @@index([lessonId])
 }
 
 model ParticipationLog {
@@ -422,6 +483,8 @@ model Assignment {
   allowedFormats Json     @default("[]")
   isPublished   Boolean  @default(true)
   createdAt     DateTime @default(now())
+  questionsJson Json?
+  questionCount Int      @default(0)
 
   course      Course       @relation("CourseAssignments", fields: [courseId], references: [id], onDelete: Cascade)
   submissions Submission[]
@@ -442,6 +505,9 @@ model Submission {
   feedback     String?  @db.Text
   letterGrade  String?
   status       String   @default("submitted")
+  answersJson  Json?
+  autoGraded   Boolean  @default(false)
+  gradedAt     DateTime?
 
   assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
   user       User       @relation("UserSubmissions", fields: [userId], references: [id], onDelete: Cascade)

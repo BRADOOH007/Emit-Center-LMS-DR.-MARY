@@ -5,6 +5,8 @@ import { getSessionUser } from '@/lib/auth';
 import { isAdminRole } from '@/lib/security';
 import { sanitizeInput } from '@/lib/validation';
 import { writeAuditLog } from '@/lib/security';
+import type { AssignmentQuestion } from '@/types';
+import type { Prisma } from '@prisma/client';
 
 export async function POST(request: NextRequest) {
   const me = await getSessionUser();
@@ -21,6 +23,7 @@ export async function POST(request: NextRequest) {
     points?: number;
     allowedFormats?: string[];
     isPublished?: boolean;
+    questions?: AssignmentQuestion[];
   };
   try {
     body = await request.json();
@@ -45,6 +48,12 @@ export async function POST(request: NextRequest) {
     ? body.allowedFormats.filter((f) => String(f).trim())
     : ['pdf', 'doc', 'docx', 'zip'];
 
+  const questions = Array.isArray(body.questions)
+    ? body.questions.filter((q) => q && typeof q.question === 'string' && q.question.trim()).slice(0, 12)
+    : [];
+
+  const questionPoints = questions.reduce((sum, q) => sum + (Number.isFinite(Number(q.points)) && Number(q.points) > 0 ? Math.round(Number(q.points)) : 0), 0);
+
   try {
     const assignment = await prisma.assignment.create({
       data: {
@@ -52,9 +61,11 @@ export async function POST(request: NextRequest) {
         title,
         description,
         dueDate,
-        points,
-        allowedFormats: allowedFormats,
+        points: questionPoints > 0 ? questionPoints : points,
+        allowedFormats: questions.length > 0 ? (['quiz'] as unknown as Prisma.InputJsonValue) : (allowedFormats as unknown as Prisma.InputJsonValue),
         isPublished: body.isPublished !== false,
+        questionsJson: questions.length > 0 ? (questions as unknown as Prisma.InputJsonValue) : undefined,
+        questionCount: questions.length,
       },
     });
 
@@ -65,7 +76,7 @@ export async function POST(request: NextRequest) {
       resourceId: assignment.id,
     }).catch(() => {});
 
-    return created({ id: assignment.id, courseId: assignment.courseId, title: assignment.title });
+    return created({ id: assignment.id, courseId: assignment.courseId, title: assignment.title, questionCount: assignment.questionCount });
   } catch (err: any) {
     return serverError(err?.message || 'Failed to create assignment');
   }

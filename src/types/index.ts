@@ -367,6 +367,34 @@ export interface QuizAttempt {
   user?: User;
 }
 
+export type AssignmentQuestionType = 'mcq' | 'short';
+
+export interface AssignmentQuestion {
+  id: string;
+  question: string;
+  type: AssignmentQuestionType;
+  options?: string[];
+  correctAnswer?: string;
+  modelAnswer?: string;
+  explanation?: string;
+  points: number;
+}
+
+export interface AssignmentQuestionResult {
+  questionId: string;
+  type: AssignmentQuestionType;
+  question: string;
+  points: number;
+  earned: number;
+  yourAnswer?: string;
+  correctAnswer?: string;
+  modelAnswer?: string;
+  explanation?: string;
+  feedback?: string;
+  correct: boolean;
+  aiGraded: boolean;
+}
+
 export interface Assignment {
   id: string;
   courseId: string;
@@ -377,6 +405,10 @@ export interface Assignment {
   allowedFormats: string[];
   isPublished: boolean;
   createdAt: string;
+  questions?: AssignmentQuestion[];
+  questionCount?: number;
+  pastDue?: boolean;
+  mySubmission?: Submission | null;
 }
 
 export interface Submission {
@@ -389,9 +421,14 @@ export interface Submission {
   textAnswer?: string;
   submittedAt: string;
   score?: number;
+  totalPoints?: number;
+  percentage?: number;
   feedback?: string;
   letterGrade?: LetterGrade;
   status: 'draft' | 'submitted' | 'graded' | 'returned';
+  answers?: AssignmentQuestionResult[];
+  autoGraded?: boolean;
+  gradedAt?: string;
   user?: User;
   assignment?: Assignment;
 }

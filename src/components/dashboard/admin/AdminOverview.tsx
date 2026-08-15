@@ -34,6 +34,7 @@ interface AuditEntry {
   resourceType: string;
   resourceId: string | null;
   userId: string;
+  user?: { fullName: string; email: string } | null;
 }
 
 interface RawEnrollment {
@@ -206,8 +207,11 @@ export function AdminOverview() {
               <li key={log.id} className="flex items-start gap-3 text-sm">
                 <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-gold-500" />
                 <div className="min-w-0">
-                  <p className="truncate text-text-primary">{log.action.replace('.', ' · ')}</p>
-                  <p className="text-xs text-text-muted">{formatDateTime(log.createdAt)}</p>
+                  <p className="truncate text-text-primary">{log.action.replace(/\./g, ' · ')}</p>
+                  <p className="truncate text-xs text-text-muted">
+                    {log.user?.fullName ?? 'Unknown user'}
+                    {log.user?.email ? ` · ${log.user.email}` : ''} · {formatDateTime(log.createdAt)}
+                  </p>
                 </div>
               </li>
             ))}

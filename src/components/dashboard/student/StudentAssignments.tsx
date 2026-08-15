@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ClipboardList, FileText, Search } from 'lucide-react';
+import Link from 'next/link';
+import { CheckCircle2, ClipboardList, FileText, Lock, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { PageIntro, DataColumn, DataTable, SectionPanel, StatCard } from '@/components/dashboard/primitives';
 import { useLocale } from '@/components/providers/AppProviders';
-import type { Assignment } from '@/types';
 
 interface AssignmentPayload {
   id: string;
@@ -18,10 +18,18 @@ interface AssignmentPayload {
   allowedFormats: string[];
   isPublished: boolean;
   createdAt: string;
-  submissions: { userId: string }[];
+  questionCount?: number;
+  pastDue?: boolean;
+  mySubmission?: {
+    status: string;
+    score?: number | null;
+    percentage?: number;
+    letterGrade?: string | null;
+    submittedAt: string;
+  } | null;
 }
 
-type AssignmentRow = Assignment & { submitted: boolean };
+type AssignmentRow = AssignmentPayload & { courseTitle: string };
 
 interface EnrollmentItem {
   userId: string;
@@ -43,11 +51,17 @@ export function StudentAssignments({ studentId }: { studentId: string }) {
         const courseIds = enrollments
           .filter((e) => e.userId === studentId && e.status === 'active')
           .map((e) => e.courseId);
+        const courseTitles = new Map<string, string>();
         const lists = await Promise.all(
           courseIds.map(async (courseId: string) => {
             try {
-              const res = await fetch(`/api/assignments/${encodeURIComponent(courseId)}`);
-              const assignJson = res.ok ? await res.json() : { data: {} };
+              const [courseRes, assignRes] = await Promise.all([
+                fetch(`/api/courses/${encodeURIComponent(courseId)}`),
+                fetch(`/api/assignments/${encodeURIComponent(courseId)}`),
+              ]);
+              const courseJson = courseRes.ok ? await courseRes.json() : { data: null };
+              if (courseJson?.data?.title) courseTitles.set(courseId, courseJson.data.title);
+              const assignJson = assignRes.ok ? await assignRes.json() : { data: null };
               const data = assignJson.data ?? {};
               return Array.isArray(data.assignments) ? data.assignments : [];
             } catch {
@@ -55,11 +69,12 @@ export function StudentAssignments({ studentId }: { studentId: string }) {
             }
           }),
         );
-        const rows = lists
+        const rows: AssignmentRow[] = lists
           .flat()
-          .map((assignment: AssignmentPayload): AssignmentRow => ({
-            ...assignment,
-            submitted: assignment.submissions.some((submission) => submission.userId === studentId),
+          .filter((a: AssignmentPayload) => a.isPublished !== false)
+          .map((a: AssignmentPayload) => ({
+            ...a,
+            courseTitle: courseTitles.get(a.courseId) ?? 'Course',
           }));
         if (active) setAssignments(rows);
       })
@@ -71,68 +86,68 @@ export function StudentAssignments({ studentId }: { studentId: string }) {
     };
   }, [studentId]);
 
-  const submit = (assignment: AssignmentRow) => {
-    if (assignment.submitted) return;
-    fetch(`/api/assignments/${assignment.courseId}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ assignmentId: assignment.id, fileName: 'submission.txt', fileSize: 0 }),
-    })
-      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: null })))
-      .then((json) => {
-        if (json?.success) {
-          setAssignments((prev) => prev.map((row) => (row.id === assignment.id ? { ...row, submitted: true } : row)));
-        }
-      })
-      .catch(() => undefined);
-  };
+  const isPastDue = (a: AssignmentRow) => (typeof a.pastDue === 'boolean' ? a.pastDue : new Date(a.dueDate).getTime() < Date.now());
+  const isGraded = (a: AssignmentRow) => a.mySubmission?.status === 'graded' && a.mySubmission.score != null;
+  const isSubmitted = (a: AssignmentRow) => a.mySubmission != null;
 
-  const filtered = assignments.filter((a) => a.title.toLowerCase().includes(search.toLowerCase()));
+  const openCount = assignments.filter((a) => !isSubmitted(a) && !isPastDue(a)).length;
+  const gradedCount = assignments.filter(isGraded).length;
 
   const columns: DataColumn<AssignmentRow>[] = [
     {
       key: 'assignment',
       header: 'Assignment',
-      render: (assignment) => (
+      render: (a) => (
         <div className="min-w-0">
-          <p className="truncate font-medium text-text-primary">{assignment.title}</p>
-          <p className="text-xs text-text-muted">{assignment.allowedFormats.join(', ')}</p>
+          <p className="truncate font-medium text-text-primary">{a.title}</p>
+          <p className="text-xs text-text-muted">{a.courseTitle}</p>
         </div>
       ),
     },
     {
       key: 'due',
       header: 'Due',
-      render: (assignment) => <span className="text-sm tabular-nums text-text-primary">{formatDate(assignment.dueDate)}</span>,
+      render: (a) => (
+        <span className="flex items-center gap-1 text-sm tabular-nums text-text-primary">
+          {formatDate(a.dueDate)}
+          {isPastDue(a) && <Lock aria-hidden="true" className="h-3 w-3 text-red-500" />}
+        </span>
+      ),
     },
     {
       key: 'points',
       header: 'Points',
-      render: (assignment) => <span className="text-sm tabular-nums text-text-primary">{assignment.points}</span>,
+      render: (a) => <span className="text-sm tabular-nums text-text-primary">{a.points}</span>,
     },
     {
       key: 'status',
       header: 'Status',
-      render: (assignment) => (
-        assignment.submitted ? <Badge variant="success">Submitted</Badge> : <Badge variant="gold">Open</Badge>
-      ),
+      render: (a) => {
+        if (isGraded(a)) {
+          return (
+            <span className="flex items-center gap-1.5">
+              <Badge variant="success">Graded</Badge>
+              <span className="text-xs font-bold text-emerald-600">{a.mySubmission?.score}/{a.points}</span>
+            </span>
+          );
+        }
+        if (isSubmitted(a)) return <Badge variant="gold">Submitted</Badge>;
+        if (isPastDue(a)) return <Badge variant="danger">Past due</Badge>;
+        return <Badge variant="neutral">Open</Badge>;
+      },
     },
     {
       key: 'actions',
       header: '',
-      render: (assignment) => (
-        <Button
-          variant={assignment.submitted ? 'outline' : 'gold'}
-          size="sm"
-          onClick={() => submit(assignment)}
-        >
-          {assignment.submitted ? 'View' : 'Submit'}
-        </Button>
+      render: (a) => (
+        <Link href={`/assignments/${encodeURIComponent(a.courseId)}?assignmentId=${encodeURIComponent(a.id)}`}>
+          <Button variant={isGraded(a) ? 'outline' : 'gold'} size="sm">
+            {isGraded(a) ? 'View grade' : isSubmitted(a) ? 'View' : isPastDue(a) ? 'View' : 'Open & attempt'}
+          </Button>
+        </Link>
       ),
     },
   ];
-
-  const openCount = assignments.filter((a) => !a.submitted).length;
 
   return (
     <div className="space-y-6">
@@ -144,8 +159,8 @@ export function StudentAssignments({ studentId }: { studentId: string }) {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Assignments" value={assignments.length} hint="Across your courses" icon={ClipboardList} tone="gold" />
-        <StatCard label="Open" value={openCount} hint="Not yet submitted" icon={FileText} tone="brown" />
-        <StatCard label="Submitted" value={assignments.length - openCount} hint="Completed" icon={FileText} tone="emerald" />
+        <StatCard label="Open" value={openCount} hint="Not yet attempted" icon={FileText} tone="brown" />
+        <StatCard label="Graded" value={gradedCount} hint="With scores" icon={CheckCircle2} tone="emerald" />
         <StatCard label="Total Points" value={assignments.reduce((s, a) => s + a.points, 0)} hint="Available" icon={FileText} tone="blue" />
       </div>
 
@@ -161,7 +176,11 @@ export function StudentAssignments({ studentId }: { studentId: string }) {
       </div>
 
       <SectionPanel>
-        <DataTable rows={filtered} columns={columns} emptyMessage="No assignments match your search." />
+        <DataTable
+          rows={assignments.filter((a) => a.title.toLowerCase().includes(search.toLowerCase()))}
+          columns={columns}
+          emptyMessage="No assignments match your search."
+        />
       </SectionPanel>
     </div>
   );

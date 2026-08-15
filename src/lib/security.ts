@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { prisma } from '@/lib/prisma';
+import { maybePurgeExpiredAuditLogs } from '@/lib/audit-retention';
 
 const WINDOW_MS = 60 * 1000;
 const MAX_REQUESTS = 20;
@@ -103,6 +104,7 @@ export async function writeAuditLog(params: {
         userAgent: params.userAgent ?? h.get('user-agent')?.slice(0, 512) ?? undefined,
       },
     });
+    maybePurgeExpiredAuditLogs();
   } catch {
     // Audit failures must never break the primary request.
   }

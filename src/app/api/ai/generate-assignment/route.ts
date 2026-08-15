@@ -2,9 +2,9 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { ok, badRequest, forbid, serverError } from '@/lib/api-helpers';
 import { getSessionUser } from '@/lib/auth';
-import { isAdminRole } from '@/lib/security';
+import { isAdminRole, writeAuditLog } from '@/lib/security';
 import { checkAIUsageAllowed, recordAIUsage } from '@/lib/ai-usage';
-import { generateAssignment, type AssignmentGenerationParams } from '@/lib/assignment-generator';
+import { generateAssignment, generateAssignmentQuiz, type AssignmentGenerationParams } from '@/lib/assignment-generator';
 
 export async function POST(request: NextRequest) {
   const me = await getSessionUser();
@@ -13,14 +13,14 @@ export async function POST(request: NextRequest) {
     return forbid('Instructor access required');
   }
 
-  let body: AssignmentGenerationParams & { courseId?: string };
+  let body: AssignmentGenerationParams & { courseId?: string; mode?: 'doc' | 'quiz' };
   try {
     body = await request.json();
   } catch {
     return badRequest('Invalid JSON body');
   }
 
-  const { courseId, ...genParams } = body;
+  const { courseId, mode, ...genParams } = body;
 
   if (courseId) {
     const course = await prisma.course.findUnique({ where: { id: courseId } });
@@ -35,7 +35,10 @@ export async function POST(request: NextRequest) {
   if (!usage.allowed) return badRequest(usage.reason ?? 'AI usage limit reached');
 
   try {
-    const assignment = await generateAssignment(genParams);
+    const isQuiz = mode === 'quiz';
+    const assignment = isQuiz
+      ? await generateAssignmentQuiz(genParams)
+      : await generateAssignment(genParams);
     recordAIUsage(me.id, 1500).catch(() => {});
 
     const saved = await prisma.aIGeneratedContent.create({
@@ -50,10 +53,12 @@ export async function POST(request: NextRequest) {
           topic: genParams.topic,
           grade: genParams.grade ?? null,
           difficulty: genParams.difficulty ?? 'medium',
+          mode: isQuiz ? 'quiz' : 'doc',
         },
       },
     });
 
+    await writeAuditLog({ userId: me.id, action: 'ai.generated.assignment', resourceType: 'ai', resourceId: saved.id });
     return ok({ assignment, generationId: saved.id });
   } catch (err: any) {
     return serverError(err?.message || 'Failed to generate assignment');

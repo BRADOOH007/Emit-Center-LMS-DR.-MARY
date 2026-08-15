@@ -44,6 +44,14 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE() {
+  try {
+    const session = await getSession();
+    if (session?.user) {
+      await writeAuditLog({ userId: session.user.id, action: 'auth.logout', resourceType: 'session' });
+    }
+  } catch {
+    // Never let auditing block sign-out.
+  }
   await clearSessionCookies();
   const response = ok({ signedOut: true });
   response.cookies.set('emit_session', '', { maxAge: 0, path: '/' });

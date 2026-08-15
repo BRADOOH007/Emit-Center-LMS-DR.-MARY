@@ -6,6 +6,8 @@ import { buildCurriculumLessonContext, buildUSCurriculumKnowledge, DEFAULT_CURRI
 import { buildStudentContext } from '@/lib/student-context';
 import { checkAIUsageAllowed, recordAIUsage } from '@/lib/ai-usage';
 import { prisma } from '@/lib/prisma';
+import { shouldAudit } from '@/lib/audit-throttle';
+import { writeAuditLog } from '@/lib/security';
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
@@ -159,6 +161,11 @@ Teaching rules:
   }
 
   let detailed;
+  // Record student/instructor AI interaction in the recent-activity feed,
+  // throttled to one row per user per minute so chat never floods the table.
+  if (userId && shouldAudit(`ai.chat:${userId}`)) {
+    await writeAuditLog({ userId, action: 'ai.chat', resourceType: 'ai' }).catch(() => {});
+  }
   try {
     detailed = await OpenAIService.generateTextDetailed(chatMessages, {
       maxTokens: autoTeach ? 1200 : 1000,
