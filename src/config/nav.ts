@@ -90,6 +90,7 @@ export const SIDEBAR_NAV: Record<Role, NavSection[]> = {
       title: 'System',
       items: [
         { label: 'Reports', href: '/dashboard/admin/reports', icon: FileBarChart },
+        { label: 'AI Tools', href: '/dashboard/admin/ai', icon: Sparkles },
         { label: 'Settings', href: '/dashboard/admin/settings', icon: Settings },
       ],
     },
