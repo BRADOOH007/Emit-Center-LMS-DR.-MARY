@@ -6,12 +6,26 @@ import { PageIntro, SectionPanel, StatCard } from '@/components/dashboard/primit
 import type { Badge as BadgeType, Certificate, Transcript } from '@/types';
 import { useLocale } from '@/components/providers/AppProviders';
 import { Button } from '@/components/ui/Button';
+import { downloadCertificatePdf } from '@/lib/certificate-pdf';
 
 export function StudentCertificates({ studentId }: { studentId: string }) {
   const { formatDate } = useLocale();
   const [certificates, setCertificates] = useState<Certificate[]>([]);
   const [badges, setBadges] = useState<BadgeType[]>([]);
   const [transcript, setTranscript] = useState<Transcript | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  const handleDownload = async (cert: Certificate) => {
+    if (downloadingId) return;
+    setDownloadingId(cert.id);
+    try {
+      await downloadCertificatePdf(cert);
+    } catch {
+      window.print();
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -151,6 +165,19 @@ export function StudentCertificates({ studentId }: { studentId: string }) {
                     <ExternalLink aria-hidden="true" className="h-3.5 w-3.5" />
                     View
                   </a>
+                  <Button
+                    variant="gold"
+                    size="sm"
+                    onClick={() => handleDownload(cert)}
+                    disabled={downloadingId === cert.id}
+                  >
+                    {downloadingId === cert.id ? (
+                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                    ) : (
+                      <Download aria-hidden="true" className="h-3.5 w-3.5" />
+                    )}
+                    {downloadingId === cert.id ? 'Preparing…' : 'Download'}
+                  </Button>
                 </div>
               </li>
             ))}

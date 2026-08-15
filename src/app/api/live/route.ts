@@ -3,7 +3,20 @@ import { prisma } from '@/lib/prisma';
 import { ok, badRequest, forbid, notFound, parseBody } from '@/lib/api-helpers';
 import { getSessionUser } from '@/lib/auth';
 import { sanitizeInput, slugify } from '@/lib/validation';
-import type { LiveSession } from '@/types';
+import type { LiveSession, Recording } from '@/types';
+
+function parseJsonArray<T>(value: unknown): T[] {
+  if (Array.isArray(value)) return value as T[];
+  if (typeof value === 'string' && value.trim()) {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? (parsed as T[]) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
 
 function mapLiveSession(row: {
   id: string;
@@ -25,11 +38,11 @@ function mapLiveSession(row: {
     platform: row.platform as LiveSession['platform'],
     joinUrl: row.joinUrl,
     hostKey: row.hostKey ?? undefined,
-    agenda: (row.agendaJson as string[]) ?? [],
+    agenda: parseJsonArray<string>(row.agendaJson),
     status: row.status as LiveSession['status'],
     scheduledStart: row.scheduledStart.toISOString(),
     scheduledEnd: row.scheduledEnd.toISOString(),
-    recordings: (row.recordingsJson as LiveSession['recordings']) ?? [],
+    recordings: parseJsonArray<Recording>(row.recordingsJson),
   };
 }
 
@@ -98,7 +111,7 @@ export async function POST(request: NextRequest) {
         status: 'upcoming',
         scheduledStart: new Date(body.scheduledStart),
         scheduledEnd: new Date(body.scheduledEnd),
-        agendaJson: JSON.stringify(agenda),
+        agendaJson: agenda,
       },
     });
 

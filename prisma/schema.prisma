@@ -417,14 +417,15 @@ model Payment {
 }
 
 model Certificate {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   userId           String
   courseId         String
   studentName      String
   courseTitle      String
   completionDate   DateTime
-  verificationHash String   @unique
-  issuedAt         DateTime @default(now())
+  verificationHash String    @unique
+  issuedAt         DateTime  @default(now())
+  revokedAt        DateTime?
 
   user   User   @relation("UserCertificates", fields: [userId], references: [id], onDelete: Cascade)
   course Course @relation("CourseCertificates", fields: [courseId], references: [id], onDelete: Cascade)

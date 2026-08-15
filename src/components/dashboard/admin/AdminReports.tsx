@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { BarChart3, Download, FileBarChart2, FileCheck2, ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { PageIntro, SectionPanel, StatCard } from '@/components/dashboard/primitives';
+import { CertificateActions } from '@/components/certificate/CertificateActions';
 import type { Certificate } from '@/types';
 import { useLocale } from '@/components/providers/AppProviders';
 import { cn } from '@/lib/utils';
@@ -78,6 +79,10 @@ export function AdminReports() {
     URL.revokeObjectURL(url);
   };
 
+  const updateCert = (updated: Certificate) => {
+    setCertificates((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+  };
+
   return (
     <div className="space-y-6">
       <PageIntro
@@ -142,14 +147,24 @@ export function AdminReports() {
         <SectionPanel title="Issued Certificates" icon={FileCheck2}>
           <ul className="divide-y divide-line">
             {certificates.map((cert) => (
-              <li key={cert.id} className="flex items-center justify-between gap-3 py-2.5">
+              <li key={cert.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-text-primary">{cert.studentName}</p>
                   <p className="text-xs text-text-muted">{cert.courseTitle}</p>
                 </div>
-                <div className="shrink-0 text-right">
-                  <p className="font-mono text-xs text-gold-600">{cert.verificationHash}</p>
-                  <p className="text-[11px] text-text-muted">{formatDateTime(cert.completionDate)}</p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="shrink-0 text-right">
+                    <p className="font-mono text-xs text-gold-600">{cert.verificationHash}</p>
+                    <p className="text-[11px] text-text-muted">{formatDateTime(cert.completionDate)}</p>
+                  </div>
+                  <CertificateActions
+                    certificate={cert}
+                    showDownload
+                    showSend
+                    showRevoke
+                    allowUnrevoke
+                    onStatusChange={updateCert}
+                  />
                 </div>
               </li>
             ))}

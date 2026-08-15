@@ -21,6 +21,8 @@ import {
   Users,
   MonitorUp,
   StopCircle,
+  StickyNote,
+  FileDown,
 } from 'lucide-react';
 import type { ChatMessage, LivePlatform, LiveSession } from '@/types';
 import { useLocale, useSession } from '@/components/providers/AppProviders';
@@ -44,7 +46,7 @@ export function VirtualClassModal({
   session: LiveSession;
   onClose: () => void;
 }) {
-  const [tab, setTab] = useState<'agenda' | 'chat' | 'whiteboard' | 'breakout'>('agenda');
+  const [tab, setTab] = useState<'agenda' | 'chat' | 'notes' | 'whiteboard' | 'breakout'>('agenda');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [sending, setSending] = useState(false);
@@ -207,6 +209,19 @@ export function VirtualClassModal({
                   <MessageCircle aria-hidden="true" className="h-4 w-4" />
                   Chat
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setTab('notes')}
+                  className={cn(
+                    'flex flex-1 items-center justify-center gap-1.5 py-3 text-sm font-medium transition-colors',
+                    tab === 'notes'
+                      ? 'text-gold-700 dark:text-gold-300 border-b-2 border-gold-600'
+                      : 'text-text-muted hover:text-text-primary',
+                  )}
+                >
+                  <StickyNote aria-hidden="true" className="h-4 w-4" />
+                  Notes
+                </button>
               </div>
               <div className="flex border-b border-line">
                 <button
@@ -250,6 +265,7 @@ export function VirtualClassModal({
                     currentUserId={user.id}
                   />
                 )}
+                {tab === 'notes' && <NotesPanel sessionId={session.id} sessionTitle={session.title} />}
                 {tab === 'whiteboard' && <WhiteboardPanel />}
                 {tab === 'breakout' && (
                   <BreakoutPanel
@@ -268,10 +284,76 @@ export function VirtualClassModal({
   );
 }
 
+function NotesPanel({ sessionId, sessionTitle }: { sessionId: string; sessionTitle: string }) {
+  const storageKey = `vc-notes-${sessionId}`;
+  const [notes, setNotes] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    try {
+      return localStorage.getItem(storageKey) ?? '';
+    } catch {
+      return '';
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(storageKey, notes);
+    } catch {
+      /* ignore quota errors */
+    }
+  }, [storageKey, notes]);
+
+  const download = () => {
+    const blob = new Blob(
+      [`# Class Notes — ${sessionTitle}\n\n${notes}`],
+      { type: 'text/markdown;charset=utf-8' },
+    );
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${sessionTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-notes.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const wordCount = notes.trim() ? notes.trim().split(/\s+/).length : 0;
+
+  return (
+    <div className="flex h-full flex-col p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="flex items-center gap-1.5 text-xs font-semibold text-text-muted">
+          <StickyNote aria-hidden="true" className="h-3.5 w-3.5 text-gold-600 dark:text-gold-400" />
+          My Notes
+          <span className="font-normal text-text-muted/70">· {wordCount} words</span>
+        </p>
+        <div className="flex items-center gap-1">
+          <button type="button" onClick={download} disabled={!notes.trim()} className="btn btn-ghost btn-sm !px-2" aria-label="Download notes" title="Download notes">
+            <FileDown aria-hidden="true" className="h-4 w-4" />
+          </button>
+          <button type="button" onClick={() => setNotes('')} disabled={!notes} className="btn btn-ghost btn-sm !px-2" aria-label="Clear notes" title="Clear notes">
+            <Trash2 aria-hidden="true" className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+      <textarea
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        placeholder="Take notes during the class…"
+        aria-label="Class notes"
+        className="scrollbar-thin min-h-0 flex-1 resize-none rounded-lg border border-line bg-base p-3 text-sm text-text-primary placeholder:text-text-muted/60 focus:border-gold-500 focus:outline-none"
+      />
+      <p className="mt-2 text-[10px] text-text-muted/70">
+        Notes are saved automatically in this browser and can be downloaded at the end of class.
+      </p>
+    </div>
+  );
+}
+
 function AgendaPanel({ agenda }: { agenda: string[] }) {
+  const items = Array.isArray(agenda) ? agenda : [];
   return (
     <div className="space-y-1 p-4">
-      {(agenda ?? []).length > 0 ? agenda.map((item, index) => (
+      {items.length > 0 ? items.map((item, index) => (
         <div key={index} className="flex items-start gap-3 rounded-lg p-2.5 hover:bg-line-soft">
           <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gold-500/10 text-xs font-bold text-gold-700 dark:text-gold-300">
             {index + 1}

@@ -384,7 +384,7 @@ async function syncGradebook(
     ...quizScores.map((q) => (Number(q.total) ? (Number(q.score) / Number(q.total)) * 100 : Number(q.score) || 0)),
     ...nextAssignmentScores.map((a) => (Number(a.total) ? (Number(a.score) / Number(a.total)) * 100 : Number(a.score) || 0)),
   ];
-  if (entry) scores.push(entry.practicalScore || 0);
+  if (entry && (entry.practicalScore ?? 0) > 0) scores.push(entry.practicalScore || 0);
   const overallPercentage = scores.length > 0 ? Math.round((scores.reduce((s, x) => s + x, 0) / scores.length) * 10) / 10 : percentage;
   const overallGrade = percentageToLetter(overallPercentage);
 

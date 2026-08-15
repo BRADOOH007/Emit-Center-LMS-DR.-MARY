@@ -31,15 +31,21 @@ export default async function CertificateVerifyPage({ params }: { params: { hash
       <div className="w-full max-w-2xl space-y-4">
         <CertificateArt certificate={cert} tone="emerald" />
         <div className="flex flex-wrap items-center justify-center gap-3">
-          <Badge variant="success" dot>
-            Verified — Issued{' '}
-            {new Date(cert.issuedAt).toLocaleDateString('en-US', {
-              month: 'short',
-              day: 'numeric',
-              year: 'numeric',
-            })}
-          </Badge>
-          <CertificateActions certificate={cert} showDownload showCopy={false} />
+          {cert.revokedAt ? (
+            <Badge variant="danger" dot>
+              Revoked — This certificate is no longer valid
+            </Badge>
+          ) : (
+            <Badge variant="success" dot>
+              Verified — Issued{' '}
+              {new Date(cert.issuedAt).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+              })}
+            </Badge>
+          )}
+          <CertificateActions certificate={cert} showDownload={!cert.revokedAt} showCopy={false} />
         </div>
         <p className="mt-2 text-center text-xs text-text-muted">
           This certificate was issued by EMIT Center Foundation. Verify authenticity at{' '}

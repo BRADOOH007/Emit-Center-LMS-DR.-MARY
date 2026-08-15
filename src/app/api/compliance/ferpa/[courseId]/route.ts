@@ -27,15 +27,17 @@ export async function GET(request: NextRequest, { params }: { params: { courseId
     if (!enrolled || enrolled.status !== 'active') {
       return forbid('Student is not enrolled in this course.');
     }
-    await prisma.ferpaAccessLog.create({
-      data: {
-        instructorId: me.id,
-        studentId: targetStudentId,
-        courseId: params.courseId,
-        resourceType: 'gradebook',
-        ipAddress: request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
-      },
-    });
+    // FERPA — FerpaAccessLog tracks instructor access to student records.
+    // Commented out; restore this block when needed:
+    // await prisma.ferpaAccessLog.create({
+    //   data: {
+    //     instructorId: me.id,
+    //     studentId: targetStudentId,
+    //     courseId: params.courseId,
+    //     resourceType: 'gradebook',
+    //     ipAddress: request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
+    //   },
+    // });
     return ok({ allowed: true, studentId: targetStudentId, courseId: params.courseId });
   }
 

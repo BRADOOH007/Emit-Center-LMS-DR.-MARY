@@ -1,10 +1,13 @@
 'use client';
 
 import Image from 'next/image';
+import { Great_Vibes } from 'next/font/google';
 import { ShieldCheck } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import type { Certificate } from '@/types';
 import { cn } from '@/lib/utils';
+
+const greatVibes = Great_Vibes({ subsets: ['latin'], weight: '400', display: 'swap' });
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
 
@@ -117,7 +120,10 @@ export function CertificateArt({
         {/* Footer: signature + digital stamp + QR */}
         <div className="mt-12 grid grid-cols-3 items-end gap-4">
           <div className="text-center">
-            <div className="mx-auto w-32 border-b border-neutral-400 pt-8" />
+            <p className={cn('mx-auto text-3xl leading-none text-neutral-700', greatVibes.className)}>
+              Dr. Mary Mwangi
+            </p>
+            <div className="mx-auto mt-1 w-36 border-b-2 border-neutral-400" />
             <p className="mt-1 text-[11px] font-semibold tracking-wide text-neutral-500">Program Director</p>
             <p className="text-[10px] text-neutral-400">EMIT Center Learning</p>
           </div>

@@ -469,6 +469,7 @@ export interface Certificate {
   completionDate: string;
   verificationHash: string;
   issuedAt: string;
+  revokedAt: string | null;
 }
 
 export interface Badge {

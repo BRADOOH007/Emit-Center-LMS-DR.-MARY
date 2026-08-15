@@ -112,7 +112,6 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'students.view',
     'grades.view',
     'grades.manage',
-    'payments.view',
     'announcements.manage',
   ],
   student: [

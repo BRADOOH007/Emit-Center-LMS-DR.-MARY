@@ -108,6 +108,7 @@ export const SIDEBAR_NAV: Record<Role, NavSection[]> = {
         { label: 'Content Library', href: '/dashboard/instructor/content', icon: BookMarked },
         { label: 'Exams & Assignments', href: '/dashboard/instructor/assessments', icon: ClipboardList },
         { label: 'Student Roster', href: '/dashboard/instructor/roster', icon: UserRound },
+        { label: 'Certificates', href: '/dashboard/instructor/certificates', icon: Award },
         { label: 'Grades', href: '/dashboard/instructor/grades', icon: ClipboardList },
       ],
     },
@@ -154,6 +155,7 @@ export const SIDEBAR_NAV: Record<Role, NavSection[]> = {
         { label: 'Linked Students', href: '/dashboard/parent/students', icon: UserRound },
         { label: 'Progress Reports', href: '/dashboard/parent/reports', icon: FileBarChart },
         { label: 'Grades', href: '/dashboard/parent/grades', icon: ClipboardList },
+        { label: 'Certificates', href: '/dashboard/parent/certificates', icon: Award },
       ],
     },
     {

@@ -79,6 +79,25 @@ export async function getIssuedCertificates(): Promise<Certificate[]> {
   return certs.map(mapCertificate);
 }
 
+export async function getInstructorCertificates(instructorId: string): Promise<Certificate[]> {
+  const certs = await prisma.certificate.findMany({
+    where: { course: { instructorId } },
+    orderBy: { issuedAt: 'desc' },
+  });
+  return certs.map(mapCertificate);
+}
+
+export async function setCertificateRevoked(
+  certificateId: string,
+  revoked: boolean,
+): Promise<Certificate> {
+  const cert = await prisma.certificate.update({
+    where: { id: certificateId },
+    data: { revokedAt: revoked ? new Date() : null },
+  });
+  return mapCertificate(cert);
+}
+
 export async function verifyCertificate(hash: string): Promise<Certificate | null> {
   const cert = await prisma.certificate.findUnique({ where: { verificationHash: hash } });
   return cert ? mapCertificate(cert) : null;
@@ -93,6 +112,7 @@ function mapCertificate(row: {
   completionDate: Date;
   verificationHash: string;
   issuedAt: Date;
+  revokedAt: Date | null;
 }): Certificate {
   return {
     id: row.id,
@@ -103,5 +123,6 @@ function mapCertificate(row: {
     completionDate: row.completionDate.toISOString(),
     verificationHash: row.verificationHash,
     issuedAt: row.issuedAt.toISOString(),
+    revokedAt: row.revokedAt ? row.revokedAt.toISOString() : null,
   };
 }

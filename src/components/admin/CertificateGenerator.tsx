@@ -98,6 +98,8 @@ export function CertificateGenerator() {
               showSend
               showCopy
               showDownload
+              showRevoke
+              allowUnrevoke
             />
           </div>
         )}
