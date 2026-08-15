@@ -9,14 +9,9 @@ import { useToast } from '@/components/ui/toast';
 import type { PaymentConfig } from '@/lib/payment-config';
 
 interface DeliveryConfig {
-  smtpHost: string;
-  smtpPort: number;
-  smtpUser: string;
-  smtpPass: string;
-  smtpFrom: string;
-  smtpConfigured: boolean;
+  emailFrom: string;
   resendApiKey: string;
-  sendgridApiKey: string;
+  resendConfigured: boolean;
   twilioAccountSid: string;
   twilioAuthToken: string;
   twilioFrom: string;
@@ -94,14 +89,9 @@ export function AdminSettings() {
   const [loading, setLoading] = useState(true);
 
   const [delivery, setDelivery] = useState<DeliveryConfig>({
-    smtpHost: '',
-    smtpPort: 587,
-    smtpUser: '',
-    smtpPass: '',
-    smtpFrom: '',
-    smtpConfigured: false,
+    emailFrom: '',
     resendApiKey: '',
-    sendgridApiKey: '',
+    resendConfigured: false,
     twilioAccountSid: '',
     twilioAuthToken: '',
     twilioFrom: '',
@@ -655,75 +645,57 @@ export function AdminSettings() {
         </SectionPanel>
 
         <SectionPanel title="Email & SMS Delivery" icon={Mail}>
-          <div className="space-y-4">
+          <div className="space-y-6">
             <div className="rounded-lg border border-gold-500/25 bg-gold-500/5 px-3 py-2.5 text-xs text-text-muted">
               <span className="flex items-center gap-1.5 font-medium text-gold-700 dark:text-gold-300">
                 <ShieldCheck className="h-3.5 w-3.5" /> Provider credentials
               </span>
-              Configure SMTP, Resend, SendGrid (email) or Twilio (SMS). If no provider is configured, deliveries are logged for demo mode.
+              Email is sent via Resend and SMS via Twilio. If no key is configured, deliveries are logged for demo mode.
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="label" htmlFor="smtpHost">SMTP host</label>
-                <input id="smtpHost" className="input font-mono text-xs" placeholder="smtp.example.com" value={delivery.smtpHost} onChange={(e) => setDelivery((p) => ({ ...p, smtpHost: e.target.value }))} />
+            <div>
+              <h3 className="mb-2 text-sm font-semibold text-text-primary">Email · Resend</h3>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <label className="label" htmlFor="emailFrom">From address</label>
+                  <input id="emailFrom" className="input" value={delivery.emailFrom} onChange={(e) => setDelivery((p) => ({ ...p, emailFrom: e.target.value }))} placeholder="no-reply@emitcenter.com" />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="label" htmlFor="resendKey">
+                    <span className="flex items-center gap-1.5">
+                      Resend API key
+                      <a href="https://resend.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-gold-600 hover:underline dark:text-gold-400">
+                        Get key →
+                      </a>
+                    </span>
+                  </label>
+                  <input id="resendKey" type="password" className="input font-mono text-xs" value={delivery.resendApiKey} onChange={(e) => setDelivery((p) => ({ ...p, resendApiKey: e.target.value }))} placeholder={delivery.resendConfigured ? '•••••••• (configured — leave blank to keep)' : 're_...'} />
+                </div>
               </div>
-              <div>
-                <label className="label" htmlFor="smtpPort">SMTP port</label>
-                <input id="smtpPort" type="number" className="input" value={delivery.smtpPort} onChange={(e) => setDelivery((p) => ({ ...p, smtpPort: Number(e.target.value) }))} />
-              </div>
-              <div>
-                <label className="label" htmlFor="smtpUser">SMTP username</label>
-                <input id="smtpUser" className="input" value={delivery.smtpUser} onChange={(e) => setDelivery((p) => ({ ...p, smtpUser: e.target.value }))} />
-              </div>
-              <div>
-                <label className="label" htmlFor="smtpPass">SMTP password</label>
-                <input id="smtpPass" type="password" className="input font-mono text-xs" value={delivery.smtpPass} onChange={(e) => setDelivery((p) => ({ ...p, smtpPass: e.target.value }))} placeholder={delivery.smtpConfigured ? '•••••••• (configured — leave blank to keep)' : 'SMTP password'} />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="label" htmlFor="smtpFrom">From address</label>
-                <input id="smtpFrom" className="input" value={delivery.smtpFrom} onChange={(e) => setDelivery((p) => ({ ...p, smtpFrom: e.target.value }))} placeholder="no-reply@emitcenter.com" />
-              </div>
-              <div>
-                <label className="label" htmlFor="resendKey">
-                  <span className="flex items-center gap-1.5">
-                    Resend API key
-                    <a href="https://resend.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-gold-600 hover:underline dark:text-gold-400">
-                      Get key →
-                    </a>
-                  </span>
-                </label>
-                <input id="resendKey" type="password" className="input font-mono text-xs" value={delivery.resendApiKey} onChange={(e) => setDelivery((p) => ({ ...p, resendApiKey: e.target.value }))} placeholder="re_..." />
-              </div>
-              <div>
-                <label className="label" htmlFor="sendgridKey">
-                  <span className="flex items-center gap-1.5">
-                    SendGrid API key
-                    <a href="https://app.sendgrid.com/settings/api_keys" target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-gold-600 hover:underline dark:text-gold-400">
-                      Get key →
-                    </a>
-                  </span>
-                </label>
-                <input id="sendgridKey" type="password" className="input font-mono text-xs" value={delivery.sendgridApiKey} onChange={(e) => setDelivery((p) => ({ ...p, sendgridApiKey: e.target.value }))} placeholder="SG.xxx" />
-              </div>
-              <div>
-                <label className="label" htmlFor="twilioSid">Twilio Account SID</label>
-                <input id="twilioSid" className="input font-mono text-xs" value={delivery.twilioAccountSid} onChange={(e) => setDelivery((p) => ({ ...p, twilioAccountSid: e.target.value }))} placeholder="AC..." />
-              </div>
-              <div>
-                <label className="label" htmlFor="twilioToken">
-                  <span className="flex items-center gap-1.5">
-                    Twilio Auth Token
-                    <a href="https://console.twilio.com" target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-gold-600 hover:underline dark:text-gold-400">
-                      Get token →
-                    </a>
-                  </span>
-                </label>
-                <input id="twilioToken" type="password" className="input font-mono text-xs" value={delivery.twilioAuthToken} onChange={(e) => setDelivery((p) => ({ ...p, twilioAuthToken: e.target.value }))} placeholder={delivery.twilioConfigured ? '•••••••• (configured — leave blank to keep)' : 'Auth token'} />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="label" htmlFor="twilioFrom">Twilio from number</label>
-                <input id="twilioFrom" className="input font-mono text-xs" value={delivery.twilioFrom} onChange={(e) => setDelivery((p) => ({ ...p, twilioFrom: e.target.value }))} placeholder="+15551234567" />
+            </div>
+
+            <div>
+              <h3 className="mb-2 text-sm font-semibold text-text-primary">SMS · Twilio</h3>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="label" htmlFor="twilioSid">Twilio Account SID</label>
+                  <input id="twilioSid" className="input font-mono text-xs" value={delivery.twilioAccountSid} onChange={(e) => setDelivery((p) => ({ ...p, twilioAccountSid: e.target.value }))} placeholder="AC..." />
+                </div>
+                <div>
+                  <label className="label" htmlFor="twilioToken">
+                    <span className="flex items-center gap-1.5">
+                      Twilio Auth Token
+                      <a href="https://console.twilio.com" target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-gold-600 hover:underline dark:text-gold-400">
+                        Get token →
+                      </a>
+                    </span>
+                  </label>
+                  <input id="twilioToken" type="password" className="input font-mono text-xs" value={delivery.twilioAuthToken} onChange={(e) => setDelivery((p) => ({ ...p, twilioAuthToken: e.target.value }))} placeholder={delivery.twilioConfigured ? '•••••••• (configured — leave blank to keep)' : 'Auth token'} />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="label" htmlFor="twilioFrom">Twilio from number</label>
+                  <input id="twilioFrom" className="input font-mono text-xs" value={delivery.twilioFrom} onChange={(e) => setDelivery((p) => ({ ...p, twilioFrom: e.target.value }))} placeholder="+15551234567" />
+                </div>
               </div>
             </div>
 

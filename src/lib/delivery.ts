@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma';
 
 // Lightweight email/SMS delivery with graceful degradation.
+// Email is sent exclusively through Resend; SMS is sent through Twilio.
 // Real providers are used only when the corresponding credentials are
 // configured (via environment variables or app settings). Otherwise the
 // delivery is recorded in the audit log so the platform still works
@@ -24,18 +25,13 @@ export interface DeliveryResult {
   provider?: string;
 }
 
-function readSetting(settings: { key: string; value: unknown }[], key: string): string {
-  const row = settings.find((s) => s.key === key);
-  const value = row?.value;
-  if (typeof value === 'string') return value;
-  if (value && typeof value === 'object') {
-    const obj = value as Record<string, unknown>;
-    if (typeof obj.value === 'string') return obj.value;
-  }
-  return '';
-}
-
-async function getConfig(): Promise<{ smtpHost: string; smtpPort: number; smtpUser: string; smtpPass: string; smtpFrom: string; resendKey: string; sendgridKey: string; twilioSid: string; twilioToken: string; twilioFrom: string }> {
+async function getConfig(): Promise<{
+  resendKey: string;
+  fromAddress: string;
+  twilioSid: string;
+  twilioToken: string;
+  twilioFrom: string;
+}> {
   const fromEnv = (key: string) => process.env[key] ?? '';
   let stored: Record<string, unknown> = {};
   try {
@@ -50,13 +46,8 @@ async function getConfig(): Promise<{ smtpHost: string; smtpPort: number; smtpUs
     return typeof v === 'string' ? v : '';
   };
   return {
-    smtpHost: read('smtpHost') || fromEnv('SMTP_HOST'),
-    smtpPort: Number(read('smtpPort') || fromEnv('SMTP_PORT') || 587),
-    smtpUser: read('smtpUser') || fromEnv('SMTP_USER'),
-    smtpPass: read('smtpPass') || fromEnv('SMTP_PASS'),
-    smtpFrom: read('smtpFrom') || fromEnv('SMTP_FROM') || 'no-reply@emitcenter.com',
     resendKey: read('resendApiKey') || fromEnv('RESEND_API_KEY'),
-    sendgridKey: read('sendgridApiKey') || fromEnv('SENDGRID_API_KEY'),
+    fromAddress: read('emailFrom') || fromEnv('EMAIL_FROM') || 'no-reply@emitcenter.com',
     twilioSid: read('twilioAccountSid') || fromEnv('TWILIO_ACCOUNT_SID'),
     twilioToken: read('twilioAuthToken') || fromEnv('TWILIO_AUTH_TOKEN'),
     twilioFrom: read('twilioFrom') || fromEnv('TWILIO_FROM'),
@@ -65,40 +56,26 @@ async function getConfig(): Promise<{ smtpHost: string; smtpPort: number; smtpUs
 
 export async function sendEmail({ to, subject, text, html }: EmailOptions): Promise<DeliveryResult> {
   const cfg = await getConfig();
-  const body = html ?? text ?? '';
 
-  if (cfg.resendKey) {
-    try {
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${cfg.resendKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: cfg.smtpFrom, to: [to], subject, text, html }),
-      });
-      if (res.ok) return { channel: 'email', status: 'sent', provider: 'resend' };
-    } catch {
-      /* fall through */
-    }
+  if (!cfg.resendKey) {
+    // No provider configured — record and skip actual delivery.
+    return { channel: 'email', status: 'skipped' };
   }
 
-  if (cfg.sendgridKey) {
-    try {
-      const res = await fetch('https://api.sendgrid.com/v3/mail/send', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${cfg.sendgridKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          personalizations: [{ to: [{ email: to }] }],
-          from: { email: cfg.smtpFrom },
-          subject,
-          content: [{ type: html ? 'text/html' : 'text/plain', value: body }],
-        }),
-      });
-      if (res.ok) return { channel: 'email', status: 'sent', provider: 'sendgrid' };
-    } catch {
-      /* fall through */
-    }
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${cfg.resendKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ from: cfg.fromAddress, to: [to], subject, text, html }),
+    });
+    if (res.ok) return { channel: 'email', status: 'sent', provider: 'resend' };
+  } catch {
+    /* fall through */
   }
 
-  // No provider configured — record and skip actual delivery.
   return { channel: 'email', status: 'skipped' };
 }
 

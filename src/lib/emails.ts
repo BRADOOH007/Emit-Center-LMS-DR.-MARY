@@ -5,7 +5,6 @@ export function appUrl(): string {
 }
 
 const BRAND = 'EMIT Center';
-const FROM_DEFAULT = process.env.MAIL_FROM ?? 'EMIT Center <no-reply@emitcenter.com>';
 
 function layout(title: string, bodyHtml: string): string {
   return `

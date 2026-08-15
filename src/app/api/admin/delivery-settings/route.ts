@@ -6,20 +6,15 @@ import { getSessionUser } from '@/lib/auth';
 import { isAdminRole, writeAuditLog } from '@/lib/security';
 
 export interface DeliverySettings {
-  smtpHost: string;
-  smtpPort: number;
-  smtpUser: string;
-  smtpFrom: string;
-  smtpConfigured: boolean;
+  emailFrom: string;
   resendApiKey: string;
-  sendgridApiKey: string;
+  resendConfigured: boolean;
   twilioAccountSid: string;
   twilioFrom: string;
   twilioConfigured: boolean;
 }
 
 const KEY = 'delivery_settings';
-const SECRET_KEYS = ['smtpPass', 'resendApiKey', 'sendgridApiKey', 'twilioAuthToken'] as const;
 
 function redact(value: string): string {
   if (!value) return '';
@@ -40,16 +35,12 @@ export async function GET() {
   const raw = (setting?.value as Record<string, unknown> | null) ?? {};
 
   const cfg: DeliverySettings = {
-    smtpHost: (raw.smtpHost as string) ?? process.env.SMTP_HOST ?? '',
-    smtpPort: Number(raw.smtpPort ?? process.env.SMTP_PORT ?? 587),
-    smtpUser: (raw.smtpUser as string) ?? process.env.SMTP_USER ?? '',
-    smtpFrom: (raw.smtpFrom as string) ?? process.env.SMTP_FROM ?? '',
-    smtpConfigured: Boolean((raw.smtpPass as string) || process.env.SMTP_PASS),
+    emailFrom: (raw.emailFrom as string) ?? process.env.EMAIL_FROM ?? 'no-reply@emitcenter.com',
     resendApiKey: redact(readSecret('resendApiKey', raw) || process.env.RESEND_API_KEY || ''),
-    sendgridApiKey: redact(readSecret('sendgridApiKey', raw) || process.env.SENDGRID_API_KEY || ''),
+    resendConfigured: Boolean(readSecret('resendApiKey', raw) || process.env.RESEND_API_KEY),
     twilioAccountSid: (raw.twilioAccountSid as string) ?? process.env.TWILIO_ACCOUNT_SID ?? '',
     twilioFrom: (raw.twilioFrom as string) ?? process.env.TWILIO_FROM ?? '',
-    twilioConfigured: Boolean((raw.twilioAuthToken as string) || process.env.TWILIO_AUTH_TOKEN),
+    twilioConfigured: Boolean(readSecret('twilioAuthToken', raw) || process.env.TWILIO_AUTH_TOKEN),
   };
 
   return ok(cfg);
@@ -60,7 +51,7 @@ export async function PUT(request: NextRequest) {
   if (!me) return forbid('Sign in required');
   if (!isAdminRole(me.roles)) return forbid('Administrator access required');
 
-  const body = await parseBody<Partial<DeliverySettings> & { smtpPass?: string; twilioAuthToken?: string }>(request).catch(() => null);
+  const body = await parseBody<Partial<DeliverySettings> & { twilioAuthToken?: string }>(request).catch(() => null);
   if (!body) return badRequest('Invalid request body');
 
   const existing = await prisma.appSetting.findUnique({ where: { key: KEY } });
@@ -75,15 +66,10 @@ export async function PUT(request: NextRequest) {
     next[storeKey] = bodyVal.trim();
   };
 
-  if (body.smtpHost !== undefined) next.smtpHost = body.smtpHost.trim();
-  if (body.smtpPort !== undefined) next.smtpPort = Number(body.smtpPort) || 587;
-  if (body.smtpUser !== undefined) next.smtpUser = body.smtpUser.trim();
-  if (body.smtpFrom !== undefined) next.smtpFrom = body.smtpFrom.trim();
+  if (body.emailFrom !== undefined) next.emailFrom = body.emailFrom.trim();
   keepExisting(body.resendApiKey, 'resendApiKey');
-  keepExisting(body.sendgridApiKey, 'sendgridApiKey');
   if (body.twilioAccountSid !== undefined) next.twilioAccountSid = body.twilioAccountSid.trim();
   if (body.twilioFrom !== undefined) next.twilioFrom = body.twilioFrom.trim();
-  keepExisting(body.smtpPass, 'smtpPass');
   keepExisting(body.twilioAuthToken, 'twilioAuthToken');
 
   await prisma.appSetting.upsert({
