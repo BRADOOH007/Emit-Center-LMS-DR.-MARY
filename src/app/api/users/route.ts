@@ -17,6 +17,7 @@ function mapUser(row: {
   currency: string;
   roles: string[];
   activeRole: string;
+  status: string;
   createdAt: Date;
 }): User {
   return {
@@ -30,6 +31,7 @@ function mapUser(row: {
     countryCode: row.countryCode,
     roles: row.roles as User['roles'],
     activeRole: row.activeRole as User['activeRole'],
+    status: row.status as User['status'],
     locale: row.locale as User['locale'],
     timeZone: row.timezone as User['timeZone'],
     currency: row.currency as User['currency'],

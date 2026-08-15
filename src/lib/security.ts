@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { prisma } from '@/lib/prisma';
 import { maybePurgeExpiredAuditLogs } from '@/lib/audit-retention';
+import { securityHeaders, applySecurityHeaders } from '@/lib/edge-security';
+
+export { securityHeaders, applySecurityHeaders };
 
 const WINDOW_MS = 60 * 1000;
 const MAX_REQUESTS = 20;
@@ -58,25 +61,6 @@ export function withCsrfCheck(request: NextRequest | Request): boolean {
   if (['GET', 'HEAD', 'OPTIONS'].includes(method)) return true;
   if (TRUSTED_SAME_SITE.includes('self')) return csrfValid(request);
   return true;
-}
-
-export function securityHeaders(): Record<string, string> {
-  return {
-    'X-Content-Type-Options': 'nosniff',
-    'X-Frame-Options': 'SAMEORIGIN',
-    'Referrer-Policy': 'strict-origin-when-cross-origin',
-    'Permissions-Policy': 'camera=(self), microphone=(self), geolocation=()',
-    'Cross-Origin-Opener-Policy': 'same-origin',
-    'Content-Security-Policy':
-      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com; frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://meet.jit.si https://zoom.us https://meet.google.com; connect-src 'self' https://api.stripe.com; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:",
-  };
-}
-
-export function applySecurityHeaders(response: NextResponse): NextResponse {
-  Object.entries(securityHeaders()).forEach(([key, value]) => {
-    response.headers.set(key, value);
-  });
-  return response;
 }
 
 export function clientIp(): string {

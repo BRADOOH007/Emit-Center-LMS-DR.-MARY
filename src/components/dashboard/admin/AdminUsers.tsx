@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { MoreHorizontal, Search, ShieldCheck, Users } from 'lucide-react';
+import { MoreHorizontal, Search, ShieldCheck, Users, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { PageIntro, DataColumn, DataTable, SectionPanel, StatCard } from '@/components/dashboard/primitives';
@@ -50,6 +50,9 @@ export function AdminUsers({ scope }: { scope?: Role }) {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [roleEditor, setRoleEditor] = useState<{ user: User; roles: Role[] } | null>(null);
+  const [savingRoles, setSavingRoles] = useState(false);
   const [invite, setInvite] = useState<{
     name: string;
     email: string;
@@ -74,7 +77,7 @@ export function AdminUsers({ scope }: { scope?: Role }) {
 
   const loadUsers = useCallback(() => {
     setLoading(true);
-    fetch('/api/users')
+    fetch('/api/users', { cache: 'no-store' })
       .then((res) => (res.ok ? res.json() : Promise.reject()))
       .then((data) => {
         setUsers(Array.isArray(data.data) ? data.data : []);
@@ -166,6 +169,92 @@ export function AdminUsers({ scope }: { scope?: Role }) {
     }));
   };
 
+  const handleResetPassword = async (user: User) => {
+    setMenuFor(null);
+    setBusyId(user.id);
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}/password`, { method: 'POST' });
+      const json = await res.json().catch(() => ({ success: false, error: 'Server error' }));
+      if (!res.ok || !json.success) {
+        toast.error('Failed to reset password', json.error);
+        return;
+      }
+      toast.success('Password reset', `New temporary password: ${json.data.password}. All active sessions were revoked.`);
+    } catch {
+      toast.error('Failed to reset password', 'Please try again.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleToggleStatus = async (user: User) => {
+    setMenuFor(null);
+    const deactivating = user.status !== 'deactivated';
+    if (deactivating && !confirm(`Deactivate ${user.fullName}? They will be signed out immediately and blocked from signing in until reactivated.`)) return;
+    setBusyId(user.id);
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: deactivating ? 'deactivated' : 'active' }),
+      });
+      const json = await res.json().catch(() => ({ success: false, error: 'Server error' }));
+      if (!res.ok || !json.success) {
+        toast.error('Failed to update status', json.error);
+        return;
+      }
+      toast.success(deactivating ? 'Account deactivated' : 'Account reactivated', deactivating ? `${user.fullName} was signed out and can no longer sign in.` : `${user.fullName} can sign in again.`);
+      loadUsers();
+    } catch {
+      toast.error('Failed to update status', 'Please try again.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const openRoleEditor = (user: User) => {
+    setMenuFor(null);
+    setRoleEditor({ user, roles: [...user.roles] });
+  };
+
+  const toggleRoleFor = (role: Role) => {
+    setRoleEditor((prev) => {
+      if (!prev) return prev;
+      const has = prev.roles.includes(role);
+      const roles = has ? prev.roles.filter((r) => r !== role) : [...prev.roles, role];
+      return { ...prev, roles };
+    });
+  };
+
+  const saveRoles = async () => {
+    if (!roleEditor) return;
+    if (roleEditor.roles.length === 0) {
+      toast.error('At least one role required', 'A user must keep at least one role.');
+      return;
+    }
+    setSavingRoles(true);
+    try {
+      const activeRole = roleEditor.roles.includes(roleEditor.user.activeRole) ? roleEditor.user.activeRole : roleEditor.roles[0];
+      const res = await fetch(`/api/admin/users/${roleEditor.user.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roles: roleEditor.roles, activeRole }),
+      });
+      const json = await res.json().catch(() => ({ success: false, error: 'Server error' }));
+      if (!res.ok || !json.success) {
+        toast.error('Failed to change roles', json.error);
+        return;
+      }
+      toast.success('Roles updated', `${roleEditor.user.fullName}'s roles were updated.`);
+      setRoleEditor(null);
+      loadUsers();
+    } catch {
+      toast.error('Failed to change roles', 'Please try again.');
+    } finally {
+      setSavingRoles(false);
+    }
+  };
+
   const rows = useMemo(() => users.map((u) => ({ ...u, activeRoleLabel: ROLE_LABELS[u.activeRole] })), [users]);
 
   const filtered = rows.filter((u) => {
@@ -196,7 +285,10 @@ export function AdminUsers({ scope }: { scope?: Role }) {
       key: 'role',
       header: 'Active Role',
       render: (user) => (
-        <Badge variant={ROLE_TONES[user.activeRole]}>{user.activeRoleLabel}</Badge>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge variant={ROLE_TONES[user.activeRole]}>{user.activeRoleLabel}</Badge>
+          {user.status === 'deactivated' && <Badge variant="danger">Deactivated</Badge>}
+        </div>
       ),
     },
     {
@@ -237,16 +329,40 @@ export function AdminUsers({ scope }: { scope?: Role }) {
               >
                 View profile
               </Link>
-              {['Reset password', 'Change role', 'Deactivate'].map((action) => (
+              <button
+                type="button"
+                onClick={() => handleResetPassword(user)}
+                disabled={busyId === user.id}
+                className="block w-full rounded-md px-3 py-1.5 text-left text-sm text-text-primary transition-colors hover:bg-line-soft disabled:opacity-60"
+              >
+                {busyId === user.id ? 'Working…' : 'Reset password'}
+              </button>
+              <button
+                type="button"
+                onClick={() => openRoleEditor(user)}
+                className="block w-full rounded-md px-3 py-1.5 text-left text-sm text-text-primary transition-colors hover:bg-line-soft"
+              >
+                Change role
+              </button>
+              {user.status === 'deactivated' ? (
                 <button
-                  key={action}
                   type="button"
-                  onClick={() => setMenuFor(null)}
-                  className="block w-full rounded-md px-3 py-1.5 text-left text-sm text-text-primary transition-colors hover:bg-line-soft"
+                  onClick={() => handleToggleStatus(user)}
+                  disabled={busyId === user.id || currentUser.id === user.id}
+                  className="block w-full rounded-md px-3 py-1.5 text-left text-sm text-emerald-600 transition-colors hover:bg-line-soft disabled:opacity-60 dark:text-emerald-400"
                 >
-                  {action}
+                  {busyId === user.id ? 'Working…' : 'Reactivate'}
                 </button>
-              ))}
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleToggleStatus(user)}
+                  disabled={busyId === user.id || currentUser.id === user.id || user.roles.includes('super_admin')}
+                  className="block w-full rounded-md px-3 py-1.5 text-left text-sm text-red-600 transition-colors hover:bg-line-soft disabled:opacity-60 dark:text-red-400"
+                >
+                  {busyId === user.id ? 'Working…' : 'Deactivate'}
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -397,6 +513,46 @@ export function AdminUsers({ scope }: { scope?: Role }) {
             New accounts are verified automatically and sign in with a generated temporary password.
           </p>
         </SectionPanel>
+      )}
+
+      {roleEditor && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Change user roles"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+        >
+          <div aria-hidden="true" onClick={() => setRoleEditor(null)} className="absolute inset-0 animate-fade-in bg-black/50 backdrop-blur-sm" />
+          <div className="relative z-10 w-full max-w-md animate-scale-in rounded-card border border-line bg-base-elevated p-5 shadow-pop">
+            <h3 className="font-display text-lg font-semibold text-text-primary">Change roles</h3>
+            <p className="mt-1 text-sm text-text-muted">{roleEditor.user.fullName} · {roleEditor.user.email}</p>
+            <div className="mt-4 space-y-2">
+              {((isSuperAdmin
+                ? ['student', 'parent', 'instructor', 'administrator', 'super_admin']
+                : ['student', 'parent', 'instructor', 'administrator']) as Role[]).map((role) => (
+                <label key={role} className="flex cursor-pointer items-center justify-between rounded-lg border border-line px-4 py-2.5 text-sm">
+                  <span className="font-medium text-text-primary">{ROLE_LABELS[role]}</span>
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-line"
+                    checked={roleEditor.roles.includes(role)}
+                    onChange={() => toggleRoleFor(role)}
+                    disabled={role === 'super_admin' && !isSuperAdmin}
+                  />
+                </label>
+              ))}
+            </div>
+            <p className="mt-3 text-xs text-text-muted">
+              The active role updates automatically if the current one is removed. The super admin role can only be granted by a super admin.
+            </p>
+            <div className="mt-5 flex items-center gap-2">
+              <Button onClick={saveRoles} disabled={savingRoles}>
+                {savingRoles && <Loader2 className="h-4 w-4 animate-spin" />} Save roles
+              </Button>
+              <Button variant="outline" onClick={() => setRoleEditor(null)}>Cancel</Button>
+            </div>
+          </div>
+        </div>
       )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

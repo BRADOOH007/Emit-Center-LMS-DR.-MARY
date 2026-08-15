@@ -11,6 +11,35 @@ export interface PaymentActivationInput {
   countPromo?: boolean;
 }
 
+/**
+ * Resolves the user a payment/enrollment applies to. A parent (or admin) may
+ * pay on behalf of a linked student by passing `forUserId`. Self-pay and
+ * admin-assisted pay fall through to the actor themselves.
+ */
+export async function resolvePaymentBeneficiary(
+  actor: { id: string; roles: string[] },
+  forUserId?: string,
+): Promise<{ beneficiaryId: string } | { error: string; status: 400 | 403 }> {
+  if (!forUserId || forUserId === actor.id) return { beneficiaryId: actor.id };
+
+  const target = await prisma.user.findUnique({ where: { id: forUserId } });
+  if (!target || !target.roles.includes('student')) return { error: 'Student not found', status: 400 };
+
+  const actorIsAdmin = actor.roles.includes('super_admin') || actor.roles.includes('administrator');
+  if (!actor.roles.includes('parent') && !actorIsAdmin) {
+    return { error: 'You can only enroll yourself', status: 403 };
+  }
+
+  if (!actorIsAdmin) {
+    const link = await prisma.parentStudentLink.findUnique({
+      where: { parentId_studentId: { parentId: actor.id, studentId: forUserId } },
+    });
+    if (!link) return { error: 'This student is not linked to your account', status: 403 };
+  }
+
+  return { beneficiaryId: forUserId };
+}
+
 export async function promoUsageCount(code: string): Promise<number> {
   const row = await prisma.promoUsage.findUnique({ where: { code } });
   return row?.used ?? 0;

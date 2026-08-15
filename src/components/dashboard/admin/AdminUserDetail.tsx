@@ -20,6 +20,7 @@ import {
   AtSign,
   ShieldCheck,
   UserCheck,
+  UserX,
   Users,
   Users2,
 } from 'lucide-react';
@@ -27,7 +28,7 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { UserAvatar } from '@/components/ui/UserAvatar';
 import { PageIntro, SectionPanel, StatCard } from '@/components/dashboard/primitives';
-import { useLocale } from '@/components/providers/AppProviders';
+import { useLocale, useSession } from '@/components/providers/AppProviders';
 import { useToast } from '@/components/ui/toast';
 import { LogoMark } from '@/components/ui/LogoMark';
 import type { Role } from '@/types';
@@ -77,6 +78,7 @@ interface UserDetailData {
   currency: string;
   roles: Role[];
   activeRole: Role;
+  status: string;
   emailVerifiedAt: string | null;
   createdAt: string;
   enrollments: { id: string; status: string; createdAt: string; course: CourseBrief }[];
@@ -97,6 +99,9 @@ function activityLabel(action: string): string {
     'admin.user.instructor.created': 'Instructor created',
     'admin.user.administrator.created': 'Admin created',
     'admin.user.password_reset': 'Password reset',
+    'admin.user.deactivated': 'Account deactivated',
+    'admin.user.reactivated': 'Account reactivated',
+    'admin.user.role_changed': 'Roles changed',
     'settings.ai_update': 'AI settings updated',
   };
   return map[action] ?? action.replace(/[._]/g, ' ');
@@ -108,6 +113,7 @@ function statusLabel(status: string): string {
 
 export function AdminUserDetail({ userId }: { userId: string }) {
   const { formatDateTime } = useLocale();
+  const { user: currentUser } = useSession();
   const toast = useToast();
   const [user, setUser] = useState<UserDetailData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -115,6 +121,7 @@ export function AdminUserDetail({ userId }: { userId: string }) {
   const [showPwd, setShowPwd] = useState(false);
   const [revealedPwd, setRevealedPwd] = useState<string | null>(null);
   const [pwdLoading, setPwdLoading] = useState(false);
+  const [statusLoading, setStatusLoading] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -154,6 +161,29 @@ export function AdminUserDetail({ userId }: { userId: string }) {
     if (!user || !revealedPwd) return;
     navigator.clipboard.writeText(`Username: ${user.username ?? user.email}\nEmail: ${user.email}\nPassword: ${revealedPwd}`).catch(() => {});
     toast.success('Copied to clipboard', 'Credentials are ready to share.');
+  };
+
+  const handleToggleStatus = async (deactivating: boolean) => {
+    if (deactivating && !confirm('Deactivate this account? The user will be signed out immediately and blocked from signing in until reactivated.')) return;
+    setStatusLoading(true);
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: deactivating ? 'deactivated' : 'active' }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        toast.error('Failed to update status', json.error);
+        return;
+      }
+      setUser((prev) => (prev ? { ...prev, status: json.data.status } : prev));
+      toast.success(deactivating ? 'Account deactivated' : 'Account reactivated', deactivating ? 'The user was signed out and can no longer sign in.' : 'The user can sign in again.');
+    } catch {
+      toast.error('Failed to update status', 'Please try again.');
+    } finally {
+      setStatusLoading(false);
+    }
   };
 
   if (loading) {
@@ -209,6 +239,7 @@ export function AdminUserDetail({ userId }: { userId: string }) {
             ) : (
               <Badge variant="neutral">Unverified</Badge>
             )}
+            {user.status === 'deactivated' && <Badge variant="danger">Deactivated</Badge>}
           </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-sm text-text-muted">
@@ -266,6 +297,35 @@ export function AdminUserDetail({ userId }: { userId: string }) {
           <p className="text-xs text-text-muted">
             Resetting revokes all of this user&apos;s active sessions and sets a new temporary password you can share with them.
           </p>
+        </div>
+      </SectionPanel>
+
+      <SectionPanel title="Account Status" icon={ShieldCheck}>
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            {user.status === 'deactivated' ? (
+              <Badge variant="danger">Deactivated — this account cannot sign in</Badge>
+            ) : (
+              <Badge variant="success">Active — this account can sign in</Badge>
+            )}
+          </div>
+          {currentUser.id !== user.id && !user.roles.includes('super_admin') && (
+            user.status === 'deactivated' ? (
+              <Button variant="gold" onClick={() => handleToggleStatus(false)} disabled={statusLoading}>
+                {statusLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCheck className="h-4 w-4" />} Reactivate account
+              </Button>
+            ) : (
+              <Button variant="danger" onClick={() => handleToggleStatus(true)} disabled={statusLoading}>
+                {statusLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserX className="h-4 w-4" />} Deactivate account
+              </Button>
+            )
+          )}
+          {user.roles.includes('super_admin') && (
+            <p className="text-xs text-text-muted">Super admin accounts cannot be deactivated.</p>
+          )}
+          {currentUser.id === user.id && (
+            <p className="text-xs text-text-muted">You cannot deactivate your own account.</p>
+          )}
         </div>
       </SectionPanel>
 

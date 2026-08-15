@@ -1,6 +1,7 @@
 import { getSession } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { ProfileSettings } from '@/components/profile/ProfileSettings';
+import { ActiveSessions } from '@/components/profile/ActiveSessions';
 
 export default async function ProfilePage() {
   const session = await getSession();
@@ -16,6 +17,7 @@ export default async function ProfilePage() {
         </p>
       </div>
       <ProfileSettings user={session.user} />
+      <ActiveSessions />
     </div>
   );
 }

@@ -75,6 +75,7 @@ model User {
   currency        String    @default("USD")
   roles           RoleName[]
   activeRole      RoleName  @default(student)
+  status          String    @default("active") // active | deactivated
   emailVerifiedAt DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -120,6 +121,7 @@ model Session {
   ipAddress  String?
   userAgent  String?
   expiresAt  DateTime
+  lastUsedAt DateTime @default(now())
   createdAt  DateTime @default(now())
   revokedAt  DateTime?
 

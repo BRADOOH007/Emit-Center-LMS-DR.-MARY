@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
   CheckCircle2,
   CreditCard,
@@ -78,6 +78,8 @@ function EnrollmentModal({
 }) {
   const { user } = useSession();
   const [step, setStep] = useState<Step>('review');
+  const [linkedStudents, setLinkedStudents] = useState<{ id: string; fullName: string; email: string }[]>([]);
+  const [beneficiaryId, setBeneficiaryId] = useState<string>(user.id);
   const [promoCode, setPromoCode] = useState('');
   const [promoApplied, setPromoApplied] = useState<{
     code: string;
@@ -92,6 +94,37 @@ function EnrollmentModal({
   const [enrollmentId, setEnrollmentId] = useState('');
 
   const activePrice = course.pricing.find((p) => p.currency === userCurrency) ?? course.pricing[0];
+
+  useEffect(() => {
+    if (!user.roles.includes('parent')) return;
+    let cancelled = false;
+    fetch(`/api/users/${user.id}/linked-students`)
+      .then((res) => (res.ok ? res.json() : Promise.resolve({ data: [] })))
+      .then((json) => {
+        if (cancelled) return;
+        const links = Array.isArray(json.data) ? json.data.filter((l: { parentId?: string }) => l.parentId === user.id) : [];
+        const students = links
+          .map((l: { student?: { id: string; fullName: string; email: string } }) => l.student)
+          .filter((s: { id: string } | undefined): s is { id: string; fullName: string; email: string } => !!s);
+        setLinkedStudents(students);
+        if (students.length > 0 && !user.roles.includes('student')) {
+          setBeneficiaryId(students[0].id);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [user.id, user.roles]);
+
+  const beneficiaryOptions = [
+    ...(user.roles.includes('student') ? [{ id: user.id, fullName: user.fullName, email: user.email }] : []),
+    ...linkedStudents,
+  ];
+  const beneficiary = beneficiaryOptions.find((b) => b.id === beneficiaryId) ?? beneficiaryOptions[0];
+  const isForOther = beneficiaryId !== user.id;
+  const forUserId = isForOther ? beneficiaryId : undefined;
+
   const originalAmount = activePrice.amount / 100;
   const discountPercent = promoApplied?.discountPercent ?? 0;
   const discountedAmount = Math.round(originalAmount * (1 - discountPercent / 100));
@@ -116,6 +149,7 @@ function EnrollmentModal({
           courseId: course.id,
           currency: userCurrency,
           promoCode: promoCode.trim(),
+          forUserId,
         }),
       });
       const json = await res.json();
@@ -136,7 +170,7 @@ function EnrollmentModal({
     } finally {
       setPromoLoading(false);
     }
-  }, [promoCode, course.id, userCurrency]);
+  }, [promoCode, course.id, userCurrency, forUserId]);
 
   const handlePayment = useCallback(async () => {
     setProcessingPayment(true);
@@ -150,6 +184,7 @@ function EnrollmentModal({
           courseId: course.id,
           currency: userCurrency,
           promoCode: promoApplied?.code,
+          forUserId,
         }),
       });
       const intentJson = await intentRes.json();
@@ -169,6 +204,7 @@ function EnrollmentModal({
         body: JSON.stringify({
           courseId: course.id,
           paymentIntentId: intentJson.data.paymentIntentId,
+          forUserId,
         }),
       });
       const confirmJson = await confirmRes.json();
@@ -186,7 +222,7 @@ function EnrollmentModal({
     } finally {
       setProcessingPayment(false);
     }
-  }, [course.id, userCurrency, promoApplied]);
+  }, [course.id, userCurrency, promoApplied, forUserId]);
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
@@ -218,13 +254,20 @@ function EnrollmentModal({
         {step === 'success' && (
           <div className="px-5 py-8 text-center">
             <CheckCircle2 aria-hidden="true" className="mx-auto mb-4 h-14 w-14 text-emerald-500" />
-            <h3 className="text-xl font-bold text-text-primary">You&apos;re enrolled!</h3>
+            <h3 className="text-xl font-bold text-text-primary">
+              {isForOther ? `${beneficiary?.fullName ?? 'Student'} is enrolled!` : 'You\u2019re enrolled!'}
+            </h3>
             <p className="mt-2 text-sm text-text-muted">
               {course.title}
             </p>
             <p className="mt-1 text-sm text-text-muted">
               Enrollment ID: {enrollmentId}
             </p>
+            {isForOther && (
+              <p className="mt-2 text-xs text-text-muted">
+                The student can now access this course from their account.
+              </p>
+            )}
             <p className="mt-4 text-xs text-text-muted">
               A confirmation email has been sent with your schedule and access details.
             </p>
@@ -259,6 +302,29 @@ function EnrollmentModal({
 
             {step === 'review' && (
               <div className="space-y-5 px-5 py-5">
+                {beneficiaryOptions.length > 1 && (
+                  <div>
+                    <p className="label">Enrolling for</p>
+                    <select
+                      className="input !py-2"
+                      value={beneficiaryId}
+                      onChange={(event) => setBeneficiaryId(event.target.value)}
+                      aria-label="Enroll for"
+                    >
+                      {beneficiaryOptions.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.id === user.id ? `Myself (${user.fullName})` : b.fullName}
+                        </option>
+                      ))}
+                    </select>
+                    {isForOther && (
+                      <p className="mt-1 text-xs text-text-muted">
+                        The course and enrollment will be added to {beneficiary?.fullName}&apos;s account.
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-text-muted">Course price</span>

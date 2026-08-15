@@ -4,6 +4,8 @@ import type { SupportedLocale, SupportedTimeZone, SupportedCurrency } from './lo
 
 export type Role = 'super_admin' | 'administrator' | 'instructor' | 'student' | 'parent';
 
+export type UserStatus = 'active' | 'deactivated';
+
 export type Permission =
   | 'portal.access'
   | 'portal.super_admin'
@@ -39,6 +41,7 @@ export interface User {
   countryCode?: string;
   roles: Role[];
   activeRole: Role;
+  status?: UserStatus;
   locale: SupportedLocale;
   timeZone: SupportedTimeZone;
   currency: SupportedCurrency;
@@ -49,6 +52,18 @@ export interface User {
 export interface Session {
   user: User;
   expiresAt: string;
+  sessionId?: string;
+  lastUsedAt?: string;
+}
+
+export interface SessionRecord {
+  id: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt: string;
+  isCurrent: boolean;
 }
 
 export type DeliveryFormat = 'onsite' | 'online' | 'hybrid';

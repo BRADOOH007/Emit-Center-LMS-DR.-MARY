@@ -5,7 +5,7 @@ import { ok, badRequest, notFound, forbid, serverError, parseBody } from '@/lib/
 import { getSessionUser } from '@/lib/auth';
 import { isRateLimited, writeAuditLog } from '@/lib/security';
 import { getPaymentConfigServer } from '@/lib/payment-config';
-import { promoUsageCount } from '@/lib/payments';
+import { promoUsageCount, resolvePaymentBeneficiary } from '@/lib/payments';
 import type { SupportedCurrency } from '@/types';
 
 interface PromoDef {
@@ -43,11 +43,18 @@ export async function POST(request: NextRequest) {
     courseId?: string;
     currency?: SupportedCurrency;
     promoCode?: string;
+    forUserId?: string;
   }>(request).catch(() => null);
 
   if (!body?.courseId || !body.currency) {
     return badRequest('courseId and currency are required');
   }
+
+  const beneficiary = await resolvePaymentBeneficiary(me, body.forUserId);
+  if ('error' in beneficiary) {
+    return beneficiary.status === 403 ? forbid(beneficiary.error) : badRequest(beneficiary.error);
+  }
+  const beneficiaryId = beneficiary.beneficiaryId;
 
   const course = await prisma.course.findUnique({
     where: { id: body.courseId },
@@ -59,8 +66,10 @@ export async function POST(request: NextRequest) {
   const activeCount = course.enrollments.filter((e) => e.status === 'active' || e.status === 'pending').length;
   if (activeCount >= course.maxSeats) return badRequest('This course is full');
 
-  const already = course.enrollments.find((e) => e.userId === me.id && (e.status === 'active' || e.status === 'pending'));
-  if (already) return badRequest('You are already enrolled in this course');
+  const already = course.enrollments.find((e) => e.userId === beneficiaryId && (e.status === 'active' || e.status === 'pending'));
+  if (already) {
+    return badRequest(beneficiaryId === me.id ? 'You are already enrolled in this course' : 'This student is already enrolled in this course');
+  }
 
   const price = course.pricing.find((p) => p.currency === body.currency) ?? course.pricing[0];
   if (!price) return badRequest(`No pricing available for ${body.currency}`);
@@ -126,6 +135,7 @@ export async function POST(request: NextRequest) {
         amount: discountedAmount,
         currency,
         course: { id: course.id, title: course.title },
+        beneficiaryId,
         promoApplied,
         discountPercent,
         originalAmount: price.amount,
@@ -147,7 +157,7 @@ export async function POST(request: NextRequest) {
         metadata: {
           courseId: course.id,
           courseTitle: course.title.slice(0, 128),
-          userId: me.id,
+          userId: beneficiaryId,
           ...(promoApplied ? { promoCode: promoApplied } : {}),
         },
         automatic_payment_methods: { enabled: true },
@@ -166,6 +176,7 @@ export async function POST(request: NextRequest) {
         amount: discountedAmount,
         currency,
         course: { id: course.id, title: course.title },
+        beneficiaryId,
         promoApplied,
         discountPercent,
         originalAmount: price.amount,
@@ -178,13 +189,14 @@ export async function POST(request: NextRequest) {
   }
 
   // Demo / sandbox mode: produce a synthetic intent so the flow is testable.
-  const paymentIntentId = `pi_demo_${Date.now()}_${me.id.slice(0, 6)}`;
+  const paymentIntentId = `pi_demo_${Date.now()}_${beneficiaryId.slice(0, 6)}`;
   return ok({
     paymentIntentId,
     clientSecret: null,
     amount: discountedAmount,
     currency,
     course: { id: course.id, title: course.title },
+    beneficiaryId,
     promoApplied,
     discountPercent,
     originalAmount: price.amount,

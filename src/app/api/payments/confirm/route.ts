@@ -5,7 +5,7 @@ import { ok, badRequest, serverError, forbid, parseBody } from '@/lib/api-helper
 import { getSessionUser } from '@/lib/auth';
 import { isRateLimited, writeAuditLog } from '@/lib/security';
 import { getPaymentConfigServer } from '@/lib/payment-config';
-import { activateEnrollmentForPayment } from '@/lib/payments';
+import { activateEnrollmentForPayment, resolvePaymentBeneficiary } from '@/lib/payments';
 
 function getStripeConfig(config: { stripePublishableKey: string; stripeSecretKey: string }): { publishableKey: string; secretKey: string } | null {
   const publishableKey = config.stripePublishableKey;
@@ -25,20 +25,27 @@ export async function POST(request: NextRequest) {
     courseId?: string;
     paymentIntentId?: string;
     promoCode?: string;
+    forUserId?: string;
   }>(request).catch(() => null);
 
   if (!body?.courseId || !body?.paymentIntentId) {
     return badRequest('courseId and paymentIntentId are required');
   }
 
+  const beneficiary = await resolvePaymentBeneficiary(me, body.forUserId);
+  if ('error' in beneficiary) {
+    return beneficiary.status === 403 ? forbid(beneficiary.error) : badRequest(beneficiary.error);
+  }
+  const beneficiaryId = beneficiary.beneficiaryId;
+
   const course = await prisma.course.findUnique({ where: { id: body.courseId } });
   if (!course) return badRequest('Course not found');
 
   const existingEnrollment = await prisma.enrollment.findUnique({
-    where: { userId_courseId: { userId: me.id, courseId: course.id } },
+    where: { userId_courseId: { userId: beneficiaryId, courseId: course.id } },
   });
   if (existingEnrollment && (existingEnrollment.status === 'active' || existingEnrollment.status === 'pending')) {
-    return badRequest('You are already enrolled in this course');
+    return badRequest(beneficiaryId === me.id ? 'You are already enrolled in this course' : 'This student is already enrolled in this course');
   }
 
   const setting = await prisma.appSetting.findUnique({ where: { key: 'payment_config' } });
@@ -98,7 +105,7 @@ export async function POST(request: NextRequest) {
   const countPromoHere = isDemoIntent || isPayPalOrder;
 
   const { enrollmentId: enrollment } = await activateEnrollmentForPayment({
-    userId: me.id,
+    userId: beneficiaryId,
     courseId: course.id,
     paymentIntentId: body.paymentIntentId as string,
     amount,
@@ -114,5 +121,5 @@ export async function POST(request: NextRequest) {
     resourceId: course.id,
   });
 
-  return ok({ enrollment });
+  return ok({ enrollment, beneficiaryId });
 }

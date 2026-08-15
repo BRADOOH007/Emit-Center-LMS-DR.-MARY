@@ -2,12 +2,14 @@ import { cookies, headers } from 'next/headers';
 import { compareSync, hashSync } from 'bcryptjs';
 import { createHash, randomBytes } from 'crypto';
 import { prisma } from '@/lib/prisma';
-import type { Session, User } from '@/types';
+import type { Session, SessionRecord, User } from '@/types';
 import { getRoleHome } from '@/lib/roles';
 
 const SESSION_COOKIE = 'emit_session';
 const ROLE_COOKIE = 'emit_role';
-export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days absolute
+export const SESSION_IDLE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days idle
+export const SESSION_TOUCH_THROTTLE_MS = 5 * 60 * 1000; // persist activity at most every 5 min
 
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
@@ -30,6 +32,7 @@ function mapPrismaUser(dbUser: {
   currency: string;
   roles: string[];
   activeRole: string;
+  status: string;
   emailVerifiedAt: Date | null;
   createdAt: Date;
 }): User {
@@ -44,6 +47,7 @@ function mapPrismaUser(dbUser: {
     countryCode: dbUser.countryCode,
     roles: dbUser.roles as User['roles'],
     activeRole: dbUser.activeRole as User['activeRole'],
+    status: dbUser.status as User['status'],
     locale: dbUser.locale as User['locale'],
     timeZone: dbUser.timezone as User['timeZone'],
     currency: dbUser.currency as User['currency'],
@@ -65,14 +69,35 @@ export async function getSession(): Promise<Session | null> {
     if (!dbSession) return null;
     if (dbSession.revokedAt) return null;
     if (dbSession.expiresAt.getTime() < Date.now()) return null;
+    if (dbSession.user.status === 'deactivated') return null;
+
+    // Idle timeout: sessions expire when unused for too long, independent of the
+    // absolute TTL. A lazily-purged expired session is indistinguishable from a
+    // missing one to the client, so we can skip writing to the DB on that path.
+    if (Date.now() - dbSession.lastUsedAt.getTime() > SESSION_IDLE_TTL_MS) return null;
+
+    void touchSession(dbSession.id, dbSession.lastUsedAt);
 
     return {
       user: mapPrismaUser(dbSession.user),
       expiresAt: dbSession.expiresAt.toISOString(),
+      sessionId: dbSession.id,
+      lastUsedAt: dbSession.lastUsedAt.toISOString(),
     };
   } catch {
     return null;
   }
+}
+
+async function touchSession(sessionId: string, lastUsedAt: Date): Promise<void> {
+  const now = Date.now();
+  if (now - lastUsedAt.getTime() < SESSION_TOUCH_THROTTLE_MS) return;
+  await prisma.session
+    .updateMany({
+      where: { id: sessionId, revokedAt: null, lastUsedAt: { lt: new Date(now - SESSION_TOUCH_THROTTLE_MS) } },
+      data: { lastUsedAt: new Date(now) },
+    })
+    .catch(() => undefined);
 }
 
 export async function getSessionUser(): Promise<User | null> {
@@ -154,6 +179,42 @@ export async function revokeAllUserSessions(userId: string): Promise<void> {
     where: { userId, revokedAt: null },
     data: { revokedAt: new Date() },
   });
+}
+
+export async function listUserSessions(userId: string, currentSessionId?: string): Promise<SessionRecord[]> {
+  const rows = await prisma.session.findMany({
+    where: { userId, revokedAt: null },
+    orderBy: { lastUsedAt: 'desc' },
+    take: 50,
+  });
+  const now = Date.now();
+  return rows
+    .filter((row) => row.expiresAt.getTime() > now && now - row.lastUsedAt.getTime() <= SESSION_IDLE_TTL_MS)
+    .map((row) => ({
+      id: row.id,
+      ipAddress: row.ipAddress,
+      userAgent: row.userAgent,
+      createdAt: row.createdAt.toISOString(),
+      lastUsedAt: row.lastUsedAt.toISOString(),
+      expiresAt: row.expiresAt.toISOString(),
+      isCurrent: row.id === currentSessionId,
+    }));
+}
+
+export async function revokeUserSession(userId: string, sessionId: string): Promise<boolean> {
+  const result = await prisma.session.updateMany({
+    where: { id: sessionId, userId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+  return result.count > 0;
+}
+
+export async function revokeOtherUserSessions(userId: string, currentSessionId: string): Promise<number> {
+  const result = await prisma.session.updateMany({
+    where: { userId, revokedAt: null, id: { not: currentSessionId } },
+    data: { revokedAt: new Date() },
+  });
+  return result.count;
 }
 
 export async function setUserPassword(userId: string, password: string): Promise<void> {

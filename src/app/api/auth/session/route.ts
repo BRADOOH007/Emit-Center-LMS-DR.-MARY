@@ -24,6 +24,9 @@ export async function POST(request: Request) {
     if (!user) {
       return badRequest('Invalid email/username or password');
     }
+    if (user.status === 'deactivated') {
+      return badRequest('This account has been deactivated. Contact an administrator.');
+    }
 
     const token = await createSessionCookie(user);
     await writeAuditLog({
